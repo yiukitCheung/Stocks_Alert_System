@@ -4,6 +4,10 @@ import json
 import schedule
 import time
 
+# Initialize the Kafka producer
+producer = KafkaProducer(bootstrap_servers='localhost:9092',
+                        value_serializer=lambda v: json.dumps(v).encode('utf-8'))
+
 # Fundemental Good Stocks
 stock_symbols = [
     "NVDA", "TSLA", "META", "GOOGL", "PLTR", "GOOG", "BRK.B", "BRK.A", 
@@ -36,36 +40,28 @@ def fetch_and_produce_stock_data(symbols,kafka_producer):
                     'close': record[1]['Close'],
                     'volume': record[1]['Volume']
                     }
-                
-                print(stock_record)
-
                 # Send the stock data to Kafka
-                kafka_producer.send('my_topic', value = stock_record)
-            
+                kafka_producer.send('stock_price', value = stock_record)
+                
             # Ensure all message are sent
             kafka_producer.flush()
     
             print(f"Data for {symbol} sent successfully")   
             
-            # Sleep to avoid rate limiting
-            time.sleep(5)
-
         except Exception as e:
             print(f"Error fetching data for {symbol}: {e}")
             
-# Initialize the Kafka producer
-producer = KafkaProducer(bootstrap_servers='localhost:9092',
-                        Value_serializer=lambda v: json.dumps(v).encode('utf-8'))
 
-# Schedule the fetching and producing of stock data
-schedule.every().day.at("14:00").do(fetch_and_produce_stock_data, 
-                                    symbol=stock_symbols, 
-                                    kafka_producer=producer)
+# # Schedule the fetching and producing of stock data
+# schedule.every().day.at("14:00").do(fetch_and_produce_stock_data, 
+#                                     symbol=stock_symbols, 
+#                                     kafka_producer=producer)
 
-print("Scheduled fetching and producing of stock data at 14:00")
+# print("Scheduled fetching and producing of stock data at 14:00")
 
 # keep the script running
-while True:
-    schedule.run_pending()
-    time.sleep(1)
-
+fetching = True
+while fetching:
+    # schedule.run_pending()
+    fetch_and_produce_stock_data(stock_symbols,producer)
+    fetching = False
