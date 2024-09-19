@@ -52,12 +52,12 @@ def fetch_and_produce_stock_data(symbols,kafka_producer):
             print(f"Error fetching data for {symbol}: {e}")
             
 
-# # Schedule the fetching and producing of stock data
-# schedule.every().day.at("14:00").do(fetch_and_produce_stock_data, 
-#                                     symbol=stock_symbols, 
-#                                     kafka_producer=producer)
+# Schedule the fetching and producing of stock data
+schedule.every().day.at("14:00").do(fetch_and_produce_stock_data, 
+                                    symbol=stock_symbols, 
+                                    kafka_producer=producer)
 
-# print("Scheduled fetching and producing of stock data at 14:00")
+print("Scheduled fetching and producing of stock data at 14:00")
 
 # keep the script running
 fetching = True

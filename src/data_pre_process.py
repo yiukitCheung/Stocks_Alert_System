@@ -64,10 +64,10 @@ def consume_and_store():
             print(f"Error processing data: {e}")
 
 # Schedule the fetching and producing of stock data
-# schedule.every().day.at("14:01").do(consume_and_add_technical)
-# print("Scheduled consuming and process feteched stock data at 14:00")
+schedule.every().day.at("14:01").do(consume_and_store)
+print("Scheduled consuming and process feteched stock data at 14:00")
 
 while True:
-    consume_and_store()
-    # schedule.run_pending() 
-    # time.sleep(1)
+    schedule.run_pending() 
+    time.sleep(1)
+    
