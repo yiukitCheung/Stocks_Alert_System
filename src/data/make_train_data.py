@@ -31,8 +31,7 @@ for symbol in df['symbol'].unique():
         continue
 
     # Convert the new technical data to a dictionary format (all rows, or you can change this to your needs)
-    filtered_df_dict = filtered_df.iloc[-1].to_dict()  # Use all rows if necessary, not just the last one
-
+    filtered_df_dict = filtered_df.iloc[:,:].to_dict(orient='records') # Use all rows if necessary, not just the last one
     # Structure the MongoDB document update for this symbol
     update_data = {
         "technical_data": filtered_df_dict
