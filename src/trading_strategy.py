@@ -17,12 +17,12 @@ class TradingStrategy:
                         # Has Trade and Bearish
                         self.trades.append(
                             {
-                                "Entry_price": self.current_trade["entry_price"],
-                                "Entry_date": self.current_trade["entry_date"],
-                                "Exit_price": self.df['open'].iloc[date],
-                                "Exit_date": self.df['date'].iloc[date],
-                                "profit": (self.df['open'].iloc[date] / self.current_trade['entry_price']) - 1,
-                                "total_asset": (self.total_values * (self.df.iloc[date].open / self.current_trade['entry_price']) - 1)
+                            "Entry_price": self.current_trade["entry_price"],
+                            "Entry_date": self.current_trade["entry_date"],
+                            "Exit_price": self.df['open'].iloc[date],
+                            "Exit_date": self.df['date'].iloc[date],
+                            "profit": (self.df['open'].iloc[date] / self.current_trade['entry_price']) - 1,
+                            "total_asset": (self.total_values * (self.df.iloc[date].open / self.current_trade['entry_price']) - 1)
                             }
                         )
                         # Update total asset

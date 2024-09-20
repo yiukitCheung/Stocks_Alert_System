@@ -40,16 +40,16 @@ app.layout = html.H1([
     ]
 )
 
-
-
 # Callback to update the graph based on selected stock and selected range
 @app.callback(
     Output('Sandbox Testing', 'figure'),
     [Input('stock-selector', 'value'), Input('Sandbox Testing', 'relayoutData')]
 )
 def update_chart(selected_stock, relayout_data):
+    
     # Filter the data based on the selected stock
     filtered_df = pd.DataFrame(df[df['symbol'] == selected_stock].iloc[0]['price_data'])    
+    
     # Add technical features
     filtered_df = add_features(filtered_df).apply()
 
