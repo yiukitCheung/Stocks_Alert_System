@@ -1,22 +1,23 @@
-import numpy as np
 import ta
+import numpy as np
 
+# Add bull and bear features in the dataframe
 class add_features:
     def __init__(self, df):
         self.df = df.copy()
 
     def add_candlestick(self):
-        self.df["BodyDiff"] = abs(self.df["Open"] - self.df["Close"])
-        self.df["CandleStickType"] = np.where(self.df["Open"] < self.df["Close"], "Green", "Red")
+        self.df["BodyDiff"] = abs(self.df["open"] - self.df["close"])
+        self.df["CandleStickType"] = np.where(self.df["open"] < self.df["close"], "green", "red")
         return self.df
 
     def continuous_increase(self, windows=3):
         for i in range(1, windows + 1):
-            self.df[f"Close_t-{i}"] = self.df["Close"].shift(i)
+            self.df[f"close_t-{i}"] = self.df["close"].shift(i)
 
-        self.df['Incremental_High'] = (self.df['Close'] > self.df['Close_t-1']) \
-                                        & (self.df['Close_t-1'] > self.df['Close_t-2']) \
-                                        & (self.df['Close_t-2'] > self.df['Close_t-3'])
+        self.df['Incremental_High'] = (self.df['close'] > self.df['close_t-1']) \
+                                        & (self.df['close_t-1'] > self.df['close_t-2']) \
+                                        & (self.df['close_t-2'] > self.df['close_t-3'])
         return self.df
 
     def macd_golden_cross(self):
@@ -32,30 +33,30 @@ class add_features:
     def add_technical(self):
         
         # Add ema dual channels technical indicators
-        self.df['8EMA'] = ta.trend.ema_indicator(self.df['Close'], window=8)
-        self.df['13EMA'] = ta.trend.ema_indicator(self.df['Close'], window=13)
-        self.df['144EMA'] = ta.trend.ema_indicator(self.df['Close'], window=144)
-        self.df['169EMA'] = ta.trend.ema_indicator(self.df['Close'], window=169)
+        self.df['8EMA'] = ta.trend.ema_indicator(self.df['close'], window=8)
+        self.df['13EMA'] = ta.trend.ema_indicator(self.df['close'], window=13)
+        self.df['144EMA'] = ta.trend.ema_indicator(self.df['close'], window=144)
+        self.df['169EMA'] = ta.trend.ema_indicator(self.df['close'], window=169)
 
         # Add MACD technical indicator
-        self.df['MACD'] = ta.trend.macd(self.df['Close'], 
+        self.df['MACD'] = ta.trend.macd(self.df['close'], 
                                         window_slow=26, 
                                         window_fast=12)
         
-        self.df['MACD_SIGNAL'] = ta.trend.macd_signal(self.df['Close'], 
+        self.df['MACD_SIGNAL'] = ta.trend.macd_signal(self.df['close'], 
                                                     window_slow=26, 
                                                     window_fast=12, 
                                                     window_sign=9)
         
-        self.df['MACD_HIST'] = ta.trend.macd_diff(self.df['Close'], 
+        self.df['MACD_HIST'] = ta.trend.macd_diff(self.df['close'], 
                                                 window_slow=26, 
                                                 window_fast=12, 
                                                 window_sign=9)
         
         # Add ATR technical indicator
-        self.df["atr"] = ta.volatility.AverageTrueRange(high=self.df.High, 
-                                                        low=self.df.Low, 
-                                                        close=self.df.Close).average_true_range()
+        self.df["atr"] = ta.volatility.AverageTrueRange(high=self.df.high, 
+                                                        low=self.df.low, 
+                                                        close=self.df.close).average_true_range()
         
         self.df["atr"] = self.df.atr.rolling(window=30).mean()
         
@@ -68,4 +69,7 @@ class add_features:
         self.macd_golden_cross()
         self.add_ema_band()
 
+        # Keep only the last 500 trade days for sandbox testing
+        self.df = self.df.iloc[-500:,:]
+        
         return self.df
