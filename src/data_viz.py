@@ -31,6 +31,7 @@ fig = sp.make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.1, 
 
 # Define the layout of the Dash app
 app.layout = html.H1([
+app.layout = html.H1([
     dcc.Dropdown(
         id='stock-selector',
         options=[{'label': symbol, 'value': symbol} for symbol in df['symbol'].unique()],
@@ -42,6 +43,8 @@ app.layout = html.H1([
 
 # Callback to update the graph based on selected stock and selected range
 @app.callback(
+    Output('Sandbox Testing', 'figure'),
+    [Input('stock-selector', 'value'), Input('Sandbox Testing', 'relayoutData')]
     Output('Sandbox Testing', 'figure'),
     [Input('stock-selector', 'value'), Input('Sandbox Testing', 'relayoutData')]
 )
@@ -129,6 +132,7 @@ def update_chart(selected_stock, relayout_data):
     fig.update_layout(
         xaxis_rangeslider_visible=False,
         autosize=False,
+        height=800,
         height=800,
     )
 
