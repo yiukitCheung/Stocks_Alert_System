@@ -4,7 +4,6 @@ import json
 import pandas as pd
 import schedule
 import time
-from features_engineering import add_features
 
 # Initialize MongoDB client
 client = MongoClient('mongodb://localhost:27017/')

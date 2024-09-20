@@ -1,6 +1,6 @@
 import pandas as pd
 import dash
-from dash import dcc, html
+from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output
 import pymongo
 import plotly.graph_objects as go
@@ -30,19 +30,22 @@ app = dash.Dash(__name__)
 fig = sp.make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.1, row_heights=[0.65, 0.15, 0.25])
 
 # Define the layout of the Dash app
-app.layout = html.Div([
+app.layout = html.H1([
     dcc.Dropdown(
         id='stock-selector',
         options=[{'label': symbol, 'value': symbol} for symbol in df['symbol'].unique()],
         value=df['symbol'].unique()[0]
     ),
-    dcc.Graph(id='macd-graph', figure=fig)
-])
+    dcc.Graph(id='Sandbox Testing', figure=fig)
+    ]
+)
+
+
 
 # Callback to update the graph based on selected stock and selected range
 @app.callback(
-    Output('macd-graph', 'figure'),
-    [Input('stock-selector', 'value'), Input('macd-graph', 'relayoutData')]
+    Output('Sandbox Testing', 'figure'),
+    [Input('stock-selector', 'value'), Input('Sandbox Testing', 'relayoutData')]
 )
 def update_chart(selected_stock, relayout_data):
     # Filter the data based on the selected stock
@@ -126,8 +129,7 @@ def update_chart(selected_stock, relayout_data):
     fig.update_layout(
         xaxis_rangeslider_visible=False,
         autosize=False,
-        width=1000,  # Width of the figure in pixels
-        height=800,  # Height of the figure in pixels
+        height=800,
     )
 
     # If a new x-axis range is selected or zoomed
