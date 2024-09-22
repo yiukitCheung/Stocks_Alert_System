@@ -1,7 +1,7 @@
 import pandas as pd
 import pymongo
 
-from alert_strategy import Alert
+from data.utils.alert_strategy import Alert
 from features_engineering import add_features
 
 # Connect to MongoDB

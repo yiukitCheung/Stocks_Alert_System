@@ -6,9 +6,8 @@ import pymongo
 import plotly.graph_objects as go
 import plotly.subplots as sp
 
-from alert_strategy import Alert
-from features_engineering import add_features
-from trading_strategy import TradingStrategy
+from utils.alert_strategy import Alert
+from utils import features_engineering,trading_strategy
 
 # Fetch data from database
 
@@ -52,14 +51,14 @@ def update_chart(selected_stock, relayout_data):
     filtered_df = pd.DataFrame(df[df['symbol'] == selected_stock].iloc[0]['price_data'])    
     
     # Add technical features
-    filtered_df = add_features(filtered_df).apply()
+    filtered_df = features_engineering.add_features(filtered_df).apply()
 
     # Add Alerts
     filtered_df = Alert(filtered_df).add_alert()
     
     # Sandbox Testing
     
-    trades_history = TradingStrategy(filtered_df)
+    trades_history = trading_strategy.TradingStrategy(filtered_df)
     trades_history.execute_trades()
     filtered_trades = trades_history.get_trades()
     
@@ -130,8 +129,7 @@ def update_chart(selected_stock, relayout_data):
     fig.update_layout(
         xaxis_rangeslider_visible=False,
         autosize=False,
-        height=800,
-        height=800,
+        height=800
     )
 
     # If a new x-axis range is selected or zoomed
