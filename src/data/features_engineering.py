@@ -68,8 +68,5 @@ class add_features:
         self.continuous_increase()
         self.macd_golden_cross()
         self.add_ema_band()
-
-        # Keep only the last 500 trade days for sandbox testing
-        self.df = self.df.iloc[-500:,:]
         
         return self.df
