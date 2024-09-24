@@ -5,14 +5,6 @@ import numpy as np
 
 from sklearn.preprocessing import OneHotEncoder
 
-import torch
-from torch.utils.data import Dataset
-
-import plotly.graph_objects as go
-
-import pymongo
-import pandas as pd
-
 class StockDataPreprocessor:
     def __init__(self, db_name, collection_name, symbol, mongo_uri="mongodb://localhost:27017/"):
         """
@@ -35,16 +27,12 @@ class StockDataPreprocessor:
     def fetch_data(self):
         """Fetches stock data from the MongoDB collection and converts it to a Pandas DataFrame."""
         # Fetch the data from MongoDB
-        data = self.collection.find({})
-        
-        # Convert the data to a Pandas DataFrame
-        df = pd.DataFrame(list(data))
-        
+        fetched_data_lst = list(self.collection.find({"symbol": self.symbol}))
+
         # Extract the desired stock symbol's technical data
-        df_filtered = df[df['symbol'] == self.symbol]
-        if not df_filtered.empty:
+        if not len(fetched_data_lst) == 0:
             # Extract the 'technical_data' field from the filtered data
-            self.df = pd.DataFrame(df_filtered['technical_data'].iloc[0])
+            self.df = pd.DataFrame(fetched_data_lst)
         else:
             raise ValueError(f"No data found for symbol: {self.symbol}")
 
@@ -138,35 +126,3 @@ class DataPreprocessor:
 
         return df
     
-class TimeSeriesDataset(Dataset):
-    def __init__(self, dataframe, window_size):
-
-        self.window_size = window_size
-        
-        # Convert dataframe to tensors
-        features = torch.tensor(dataframe.drop(['close'],axis=1).values, dtype=torch.float32)
-        targets = torch.tensor(dataframe['close'].values, dtype=torch.float32)
-
-        self.windows = []
-        self.targets = []
-        
-        # Genearate windows
-        max_num_windows = len(features) - self.window_size 
-        
-        for i in range(max_num_windows):
-        
-            # Extract window data and target
-            window_data_tensor = features[i:i + self.window_size]
-            target = targets[i + self.window_size] # Predict the next day's close price
-            
-            # Append to the list
-            self.windows.append(window_data_tensor)
-            self.targets.append(target)
-
-    def __len__(self):
-        return len(self.windows)
-
-    def __getitem__(self, idx):
-        if idx >= len(self.windows):
-            raise IndexError("Index out of range")
-        return self.windows[idx], self.targets[idx]
