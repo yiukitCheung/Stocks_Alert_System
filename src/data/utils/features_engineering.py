@@ -69,4 +69,7 @@ class add_features:
         self.macd_golden_cross()
         self.add_ema_band()
         
+        # Take last 252 * 3 rows
+        self.df = self.df.iloc[-252*3:]
+        
         return self.df

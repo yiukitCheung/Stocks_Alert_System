@@ -7,20 +7,17 @@ import plotly.graph_objects as go
 import plotly.subplots as sp
 
 from utils.alert_strategy import Alert
-from utils import features_engineering,trading_strategy
-
-# Fetch data from database
+from utils.trading_strategy import TradingStrategy
+from utils.features_engineering import add_features
 
 # Connect to MongoDB
 client = pymongo.MongoClient("mongodb://localhost:27017/")
 # Select the database
-db = client["stock_data_db"]
+db = client["local"]
 # Select the collection
-collection = db["stock_data"]
-# Fetch all data
-data=collection.find({})
-# Convert to pandas dataframe
-df = pd.DataFrame(list(data))
+collection = db["historic_stock_price"]
+
+df = collection.find()
 
 # Initialize Dash app
 app = dash.Dash(__name__)
@@ -29,36 +26,34 @@ app = dash.Dash(__name__)
 fig = sp.make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.1, row_heights=[0.65, 0.15, 0.25])
 
 # Define the layout of the Dash app
-app.layout = html.H1([
+app.layout = html.Div([
     dcc.Dropdown(
         id='stock-selector',
-        options=[{'label': symbol, 'value': symbol} for symbol in df['symbol'].unique()],
-        value=df['symbol'].unique()[0]
+        options=[{'label': symbol, 'value': symbol} for symbol in collection.distinct("symbol")],
+        value=collection.distinct("symbol")[0]
     ),
-    dcc.Graph(id='Sandbox Testing', figure=fig)
-    ]
-)
+    dcc.Graph(id='sandbox_testing_graph', figure=fig)
+])
 
 # Callback to update the graph based on selected stock and selected range
 @app.callback(
-    Output('Sandbox Testing', 'figure'),
-    [Input('stock-selector', 'value'), Input('Sandbox Testing', 'relayoutData')]
+    Output('sandbox_testing_graph', 'figure'),
+    [Input('stock-selector', 'value'), Input('sandbox_testing_graph', 'relayoutData')]
 )
-
 def update_chart(selected_stock, relayout_data):
-    
-    # Filter the data based on the selected stock
-    filtered_df = pd.DataFrame(df[df['symbol'] == selected_stock].iloc[0]['price_data'])    
-    
+    # Fetch specific stock
+    filtered_query = collection.find({"symbol": f"{selected_stock}"})
+    # Convert to pandas dataframe
+    filtered_df = pd.DataFrame(list(filtered_query))   
     # Add technical features
-    filtered_df = features_engineering.add_features(filtered_df).apply()
+    filtered_df = add_features(filtered_df).apply()
 
     # Add Alerts
     filtered_df = Alert(filtered_df).add_alert()
     
     # Sandbox Testing
     
-    trades_history = trading_strategy.TradingStrategy(filtered_df)
+    trades_history = TradingStrategy(filtered_df)
     trades_history.execute_trades()
     filtered_trades = trades_history.get_trades()
     
@@ -129,7 +124,7 @@ def update_chart(selected_stock, relayout_data):
     fig.update_layout(
         xaxis_rangeslider_visible=False,
         autosize=False,
-        height=800
+        height=1000
     )
 
     # If a new x-axis range is selected or zoomed
@@ -166,4 +161,4 @@ def update_chart(selected_stock, relayout_data):
 
 # Run the app
 if __name__ == '__main__':
-    app.run_server(debug=True, port=8051)
+    app.run_server(debug=True,port=8051)

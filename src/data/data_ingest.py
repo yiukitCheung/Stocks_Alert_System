@@ -1,5 +1,5 @@
 from kafka import KafkaConsumer
-from pymongo import MongoClient
+from pymongo import MongoClient, ASCENDING, DESCENDING, UpdateOne
 import json
 import pandas as pd
 import schedule
@@ -14,8 +14,8 @@ class StockDataIngestor:
         
         # Initialize MongoDB client
         self.client = MongoClient(mongo_uri)
-        self.db = self.client['stock_data_db']
-        self.collection = self.db['stock_data']
+        self.db = self.client['local']
+        self.collection_name = 'historic_stock_price'
         self.schedule_time = schedule_time
         # Initialize the Kafka consumer
         self.consumer = KafkaConsumer(kafka_topic, 
@@ -27,41 +27,28 @@ class StockDataIngestor:
         df.columns = df.columns.str.lower()    
         
         # Filter out irrelevant features
-        df = df.loc[:, ['symbol','date', 'open', 'high', 'low', 'close','volume']]
+        df = df.loc[:, ['symbol', 'date', 'open', 'high', 'low', 'close', 'volume']]
+        df['date'] = pd.to_datetime(df['date'])  # Ensure 'date' is in datetime format
         return df
 
     def consume_and_ingest(self):
         # Consume and process the data
         for message in self.consumer:
             try:
-                # Extract and convert the message to a DataFrame
+                # Extract the message and convert it to a DataFrame
                 df = pd.DataFrame([message.value])
-                
+
                 # Clean and Filter the data
                 processed_df = self.process(df)
 
                 # Convert the processed DataFrame back to a dictionary for MongoDB
                 processed_record = processed_df.to_dict(orient='records')[0]
 
-                # Prepare the structure to store in MongoDB
-                price_data_entry = {
-                    "date": processed_record['date'],
-                    "open": processed_record['open'],
-                    "high": processed_record['high'],
-                    "low": processed_record['low'],
-                    "close": processed_record['close'],
-                    "volume": processed_record['volume']
-                }
-                
-                # Update the document in MongoDB
-                self.collection.update_one(
-                    {"symbol": processed_record['symbol'], "price_data.date": {"$ne": processed_record['date']}},    
-                    {"$set": {"symbol": processed_record['symbol']},"$push": {"price_data": price_data_entry}},
-                    upsert=True  # Create document if it doesn't exist
-                )
-            
-                print(f"Inserted {processed_record['symbol']} on {processed_record['date']}")
-                
+                # Insert the processed record into the time series collection
+                self.db[self.collection_name].insert_one(processed_record)
+
+                print(f"Inserted record for {processed_record['symbol']} on {processed_record['date']}")
+
             except Exception as e:
                 print(f"Error processing data: {e}")
                 

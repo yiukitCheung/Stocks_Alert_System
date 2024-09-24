@@ -5,8 +5,41 @@ import os
 import numpy as np
 from tqdm import tqdm
 import plotly.graph_objects as go
-from train_data_loading import TimeSeriesDataset
+from torch.utils.data import Dataset
 
+class TimeSeriesDataset(Dataset):
+    def __init__(self, dataframe, window_size):
+
+        self.window_size = window_size
+        
+        # Convert dataframe to tensors
+        features = torch.tensor(dataframe.drop(['close'],axis=1).values, dtype=torch.float32)
+        targets = torch.tensor(dataframe['close'].values, dtype=torch.float32)
+
+        self.windows = []
+        self.targets = []
+        
+        # Genearate windows
+        max_num_windows = len(features) - self.window_size 
+        
+        for i in range(max_num_windows):
+        
+            # Extract window data and target
+            window_data_tensor = features[i:i + self.window_size]
+            target = targets[i + self.window_size] # Predict the next day's close price
+            
+            # Append to the list
+            self.windows.append(window_data_tensor)
+            self.targets.append(target)
+
+    def __len__(self):
+        return len(self.windows)
+
+    def __getitem__(self, idx):
+        if idx >= len(self.windows):
+            raise IndexError("Index out of range")
+        return self.windows[idx], self.targets[idx]
+    
 class TimeSeriesTrainer:
     def __init__(self, model, epochs, criterion, optimizer, verbose=True):
         """
@@ -25,7 +58,7 @@ class TimeSeriesTrainer:
         self.criterion = criterion
         self.optimizer = optimizer
         self.verbose = verbose
-        self.model_path = '/Users/yiukitcheung/Documents/Projects/Stocks/models/'
+        self.model_path = '/Users/yiukitcheung/Documents/Projects/Stocks/model_repository'
         
     def train(self, train_dataloader, epoch, device):
         self.model.train()
