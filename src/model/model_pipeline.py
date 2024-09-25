@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from utils.model_architecture import TransformerModel, init_weights
 from utils.model_trainer import TimeSeriesTrainer
-from utils.train_data_loading import DataPreprocessor, StockDataPreprocessor
+from data.utils.train_data_loading import DataPreprocessor, StockDataPreprocessor
 def main():
     # Initialize the class with the database and collection details
     prepare_data = StockDataPreprocessor(db_name="local",

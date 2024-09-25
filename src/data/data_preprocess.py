@@ -6,7 +6,7 @@ from pymongo.errors import BulkWriteError
 from utils.alert_strategy import Alert
 from utils.features_engineering import add_features
 
-class TrainDataMaker:
+class DataPreprocess:
     def __init__(self, mongo_uri="mongodb://localhost:27017/", 
                 db_name="local", 
                 price_collection_name="historic_stock_price",
@@ -69,5 +69,5 @@ class TrainDataMaker:
                 print(f"{(added_technical/total_symbols) * 100:.2f}% Technical data added successfully for {symbol}!")
 
 if __name__ == "__main__":
-    maker = TrainDataMaker()
+    maker = DataPreprocess()
     maker.run()

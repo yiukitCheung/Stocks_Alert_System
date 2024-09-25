@@ -1,12 +1,16 @@
-import pymongo
+import pymongo, os
 
 import pandas as pd
 import numpy as np
 
 from sklearn.preprocessing import OneHotEncoder
 
-class StockDataPreprocessor:
-    def __init__(self, db_name, collection_name, symbol, mongo_uri="mongodb://localhost:27017/"):
+class fetch_and_split_data:
+    def __init__(self, 
+                symbol, 
+                db_name = "local", 
+                collection_name = "technical_stock_data", 
+                mongo_uri="mongodb://localhost:27017/"):
         """
         Initializes the MongoDB connection and prepares the collection for the stock data.
 
@@ -39,8 +43,8 @@ class StockDataPreprocessor:
     def split_data(self):
         """Splits the data into training and testing datasets."""
         if self.df is not None:
-            # Take the latest 2900 rows for training
-            self.df = self.df[-3000:-100]  # From -3000 to -100 rows for training
+            # Take the latest rows for training
+            self.df_train = self.df[-252*3:-100] 
 
             # Take the rest (last 100 rows) for testing
             self.df_test = self.df[-100:]
@@ -49,8 +53,8 @@ class StockDataPreprocessor:
 
     def get_train_data(self):
         """Returns the training data."""
-        if self.df is not None:
-            return self.df
+        if self.df_train is not None:
+            return self.df_train
         else:
             raise ValueError("Data not loaded or split. Call fetch_data() and split_data() first.")
 
@@ -61,9 +65,7 @@ class StockDataPreprocessor:
         else:
             raise ValueError("Test data not available. Call split_data() first.")
 
-# You can now use `train_data` and `test_data` for training and testing your model.
-
-class DataPreprocessor:
+class prepare_data:
     def __init__(self, exclude_columns=None):
         """
         Initializes the DataPreprocessor with the columns to exclude from log transformation.
@@ -73,8 +75,8 @@ class DataPreprocessor:
         """
         self.exclude_columns = exclude_columns if exclude_columns else ['MACD', 'MACD_SIGNAL', 'MACD_HIST']
         self.ohe = OneHotEncoder(drop='first')  # OneHotEncoder for categorical columns
-    
-    def preprocess(self, df):
+        
+    def preprocess(self, df, train=True):
         """
         Preprocess the dataframe by performing the following steps:
         - Drop 'date' column and rows with missing values
@@ -89,6 +91,8 @@ class DataPreprocessor:
         Returns:
             pd.DataFrame: The preprocessed dataframe.
         """
+        self.filename = 'train_data.parquet' if train else 'test_data.parquet'
+
         # Step 1: Drop 'date' column and handle missing values
         df = df.drop(columns=['date'], errors='ignore')  # Avoids error if 'date' is missing
         df = df.dropna()
@@ -102,27 +106,35 @@ class DataPreprocessor:
         for column in alert_columns:
             df[column] = df[column].astype('category')
 
-        # Step 3: Log transform numeric columns, excluding specified columns
-        numeric_df = df.select_dtypes(include=['float64', 'int64'])
-        cols_to_transform = [col for col in numeric_df.columns if col not in self.exclude_columns]
-        numeric_df[cols_to_transform] = np.log1p(numeric_df[cols_to_transform])
-
-        # Concatenate excluded numeric columns with the transformed ones
-        numeric_df = pd.concat([df[self.exclude_columns], numeric_df[cols_to_transform]], axis=1)
-
-        # Reset index for the numeric DataFrame
-        numeric_df = numeric_df.reset_index(drop=True)
-
-        # Step 4: One-hot encode categorical columns
+        # Step 3: One-hot encode categorical columns
         categorical_df = df.select_dtypes(include=['category'])
         encoded_df = pd.DataFrame(self.ohe.fit_transform(categorical_df).toarray(), 
                                 columns=self.ohe.get_feature_names_out(categorical_df.columns))
 
-        # Step 5: Concatenate numeric and encoded categorical data
+        # Step 4: Concatenate numeric and encoded categorical data
+        numeric_df = df.select_dtypes(include=['float64', 'int64'])
+        numeric_df = numeric_df.reset_index(drop=True)
+        
         df = pd.concat([numeric_df, encoded_df], axis=1)
 
-        # Step 6: Add timestamp column
+        # Step 5: Add timestamp column
         df['timestamp'] = df.index
 
+        # Create target variable
+        df = self.create_target(df)
+        
+        # Save the prepared data for model training
+        self.save_data(df, '/Users/yiukitcheung/Documents/Projects/Stocks/train_data_repository')
+        
         return df
     
+    def create_target(self, df):
+        # Compute the return % of the next day
+        df['log_daily_return'] = np.log(df.close.pct_change() + 1)
+        
+        return df
+    
+    def save_data(self, df, file_path):
+        """Saves the preprocessed dataframe to a CSV file."""
+        file_path = os.path.join(file_path, self.filename)
+        df.to_parquet(file_path, index=False)
