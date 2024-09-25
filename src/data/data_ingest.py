@@ -4,64 +4,89 @@ import json
 import pandas as pd
 import schedule
 import time
+import logging
+from datetime import datetime
 
 class StockDataIngestor:
-    def __init__(self,
-                mongo_uri='mongodb://localhost:27017/', 
-                kafka_server='localhost:9092', 
-                kafka_topic='stock_price',
-                schedule_time="14:01"):
-        
-        # Initialize MongoDB client
-        self.client = MongoClient(mongo_uri)
-        self.db = self.client['local']
-        self.collection_name = 'historic_stock_price'
+    def __init__(self,schedule_time,
+                mongo_uri="mongodb://localhost:27017/",
+                db_name="local", 
+                daily_collection_name="daily_stock_price",
+                weekly_collection_name="weekly_stock_price"):
+
         self.schedule_time = schedule_time
-        # Initialize the Kafka consumer
-        self.consumer = KafkaConsumer(kafka_topic, 
-                                    bootstrap_servers=kafka_server,
-                                    value_deserializer=lambda v: json.loads(v.decode('utf-8')))
-    
-    def process(self, df):
-        # Ensure lowercase columns
-        df.columns = df.columns.str.lower()    
         
-        # Filter out irrelevant features
-        df = df.loc[:, ['symbol', 'date', 'open', 'high', 'low', 'close', 'volume']]
-        df['date'] = pd.to_datetime(df['date'])  # Ensure 'date' is in datetime format
-        return df
-
-    def consume_and_ingest(self):
-        # Consume and process the data
-        for message in self.consumer:
-            try:
-                # Extract the message and convert it to a DataFrame
-                df = pd.DataFrame([message.value])
-
-                # Clean and Filter the data
-                processed_df = self.process(df)
-
-                # Convert the processed DataFrame back to a dictionary for MongoDB
-                processed_record = processed_df.to_dict(orient='records')[0]
-
-                # Insert the processed record into the time series collection
-                self.db[self.collection_name].insert_one(processed_record)
-
-                print(f"Inserted record for {processed_record['symbol']} on {processed_record['date']}")
-
-            except Exception as e:
-                print(f"Error processing data: {e}")
+        # Initialize the MongoDB client
+        self.client = MongoClient(mongo_uri)
+        self.db = self.client[db_name]
+        
+        # set the collection and topics names
+        self.daily_topic = daily_collection_name
+        self.weekly_topic = weekly_collection_name
+        
+        # Initialize the Kafka consumer
+        self.consumer = KafkaConsumer(bootstrap_servers='localhost:9092',
+                                    value_deserializer=lambda v: json.loads(v.decode('utf-8')))
+        
+    def insert_data(self, collection_name, data):
+        try:
+            self.db[collection_name].insert_many(data)
+        except Exception as e:
+            logging.error(f"Error inserting data: {e}")
+    
+    def update_data(self, collection_name, data):
+        try:
+            self.db[collection_name]\
+                .bulk_write([
+                    UpdateOne({'date': record['date'], 
+                            'symbol': record['symbol']}, 
+                            {'$set': record}, 
+                            upsert=True
+                            ) for record in data])
+        except Exception as e:
+            logging.error(f"Error updating data: {e}")
+            
+    def consume_kafka(self):
+        self.consumer.subscribe(topics=set([self.daily_topic, self.weekly_topic]))
+        try:
+            while True:
+                msg = self.consumer.poll(timeout_ms=1000)
+                if len(msg) == 0:
+                    print("No new messages") # Wait for new messages
+                    continue
+                
+                # Extract data from ConsumerRecord
+                for topic_partition, consumer_records in msg.items():
+                    # Extract the value from the ConsumerRecord
+                    records = [record.value for record in consumer_records] 
+                    collection_name = topic_partition.topic # Topic name is the collection name
+                    # Convert 'date' field to datetime
+                    for record in records:
+                        if 'date' in record:
+                            record['date'] = datetime.strptime(record['date'], '%Y-%m-%d')
+                
+                # If the collection is empty, insert data
+                if not self.db[collection_name].find_one():
+                    self.insert_data(collection_name, records)
+                    print(f"Inserted {len(records)} records into {collection_name}")
+                else:
+                    # Update the data
+                    self.update_data(collection_name, records)
+                    print(f"Updated {len(records)} records in {collection_name}")
+                    
+        except KeyboardInterrupt:
+            logging.info("Closing consumer")
                 
     def schedule_data_data_consumption(self):
         if self.schedule_time:
             schedule.every().day.at(self.schedule_time).do(self.consume_and_ingest)
-            print(f"Scheduled fetching and producing stock data at {self.schedule_time}")
+            logging.info(f"Scheduled fetching and producing stock data at {self.schedule_time}")
 
             while True:
                 schedule.run_pending()
                 time.sleep(1)
         else:
-            self.consume_and_ingest()
+            self.consume_kafka()
 
 if __name__ == "__main__":
     ingestor = StockDataIngestor(schedule_time=None)

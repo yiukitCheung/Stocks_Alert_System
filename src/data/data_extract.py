@@ -3,82 +3,116 @@ import yfinance as yf
 import json, schedule, time
 import pandas as pd
 from pymongo import MongoClient, DESCENDING
-
+import traceback
 import logging
 
 logging.basicConfig(level=logging.INFO)
 
 class StockDataExtractor:
     
-    def __init__(self, 
-                symbols,
-                mongo_uri='mongodb://localhost:27017/',
-                kafka_server='localhost:9092',
-                kafka_topic='stock_price',
-                schedule_time="14:00",
-                db_name='local',
-                collection_name='historic_stock_price'):
-        
-        self.producer = KafkaProducer(bootstrap_servers=kafka_server,
-                                    value_serializer=lambda v: json.dumps(v).encode('utf-8'))
-        self.mongo_client = MongoClient(mongo_uri)
-        self.db_name = db_name
-        self.collection_name = collection_name
-        self.topic = kafka_topic
-        self.symbols = symbols  
+    def __init__(self,symbols,schedule_time,
+                mongo_uri="mongodb://localhost:27017/",
+                db_name="local", 
+                daily_collection_name="daily_stock_price",
+                weekly_collection_name="weekly_stock_price"):
+
+        # Set the class variables
+        self.symbols = symbols
         self.schedule_time = schedule_time
-
-    def fetch_and_produce_stock_data(self):
+        self.current_date = pd.to_datetime('today').strftime('%Y-%m-%d')
         
-        for symbol in self.symbols:
-            try:
-                collection = self.mongo_client[self.db_name][self.collection_name]
-                ticker = yf.Ticker(symbol)
-                
-                if self.collection_name not in self.mongo_client[self.db_name].list_collection_names():
-                    self.mongo_client[self.db_name].create_collection(self.collection_name,
-                                                                    timeseries={
-                                                                        "timeField": "date",
-                                                                        "metaField": "symbol",
-                                                                        "granularity": "hours"
-                                                                    })
-                    logging.info(f"Time Series Collection {self.collection_name} created successfully")
-                    
-                    time.sleep(3)
-                    
-                    collection = self.mongo_client[self.db_name][self.collection_name]
-                                                                
-                if not collection.find_one({"symbol": symbol}):
-                    data = ticker.history(period='max').reset_index()
-                else:
-                    latest_record = collection.find_one({'symbol': symbol}, sort=[("date", DESCENDING)])
-                    if latest_record:
-                        last_date_in_db = pd.to_datetime(latest_record['date'])
-                        data = ticker.history(start=last_date_in_db + pd.Timedelta(days=1)).reset_index()
-                    else:
-                        data = pd.DataFrame()
+        # Initialize the MongoDB client
+        self.client = MongoClient(mongo_uri)
+        self.db = self.client[db_name]
+        self.daily_collection_name = self.daily_topic_name = daily_collection_name
+        self.weekly_collection_name = self.weekly_topic_name = weekly_collection_name
+        
+        # Initialize the Kafka producer
+        self.producer = KafkaProducer(bootstrap_servers='localhost:9092',
+                                    value_serializer=lambda v: json.dumps(v).encode('utf-8'))
+        
+        # Create Time Series Collection if it does not exist
+        self.create_collection_if_not_exists(self.daily_collection_name)
+        self.create_collection_if_not_exists(self.weekly_collection_name)
 
-                if not data.empty:
-                    for _, record in data.iterrows():
-                        stock_record = {
-                            'symbol': symbol,
-                            'date': record['Date'].strftime('%Y-%m-%d'),
-                            'open': record['Open'],
-                            'high': record['High'],
-                            'low': record['Low'],
-                            'close': record['Close'],
-                            'volume': record['Volume']
-                        }
-                        self.producer.send(self.topic, value=stock_record)
-
-                    self.producer.flush()
-                    logging.info(f"Data for {symbol} sent successfully")
-                else:
-                    logging.info(f"No new data available for {symbol}")
-
-            except Exception as e:
-                logging.error(f"Error fetching data for {symbol}: {e}")
+        # Set the collection
+        self.daily_collection = self.db[self.daily_collection_name]
+        self.weekly_collection = self.db[self.weekly_collection_name]
+        
+        # Collection to be stored in MongoDB
+        self.collection_dict = {self.daily_collection_name: (self.daily_collection, '1d'), 
+                                self.weekly_collection_name: (self.weekly_collection, '1wk')}
+        
+        print(f"Connected to MongoDB: {mongo_uri}")
     
+    def create_collection_if_not_exists(self, collection_name):
+        if collection_name not in self.db.list_collection_names():
+            self.db.create_collection(
+                collection_name,
+                timeseries={
+                    "timeField": "date",  
+                    "metaField": "symbol",  
+                    "granularity": "hours"
+                }
+            )
+            logging.info(f"Time Series Collection {collection_name} created successfully")
+            time.sleep(3)
+            
+    def fetch_and_produce_stock_data(self):
+        for collection_name, (collection, interval) in self.collection_dict.items():
+            for symbol in self.symbols:
+                try:
+                    # Fetch data from Yahoo Finance
+                    ticker = yf.Ticker(symbol)
+                    
+                    # If the symbol does not exist, fetch all data
+                    if not collection.find_one({"symbol": symbol}):
+                        data = ticker.history(period='max', interval=interval).reset_index()
+                    else:
+                        # If the symbol exists, fetch data from the last date in the database
+                        logging.info(f"{symbol} already exists in the database")
+                        latest_record = collection.find_one({'symbol': symbol}, sort=[("date", DESCENDING)])
+                        if latest_record:
+                            last_date_in_db = pd.to_datetime(latest_record['date'])
+                            if last_date_in_db.strftime('%Y-%m-%d') == self.current_date:
+                                logging.info(f"Data for {symbol} is up to date")
+                                continue
+                            else:
+                                data = ticker.history(start=last_date_in_db + pd.Timedelta(days=1), interval=interval).reset_index()
+                        else:
+                            logging.error(f"Error fetching data for {symbol}")
+                            continue
+
+                    # Produce data to Kafka
+                    if not data.empty:
+                        for _, record in data.iterrows():
+                            stock_record = {
+                                'symbol': symbol,
+                                'date': record['Date'].strftime('%Y-%m-%d'),
+                                'open': record['Open'],
+                                'high': record['High'],
+                                'low': record['Low'],
+                                'close': record['Close'],
+                                'volume': record['Volume']
+                            }
+                            self.producer.send(topic=collection_name, value=stock_record)
+                        
+                        # Flush the producer after all messages have been sent
+                        self.producer.flush()
+                        logging.info(f"Data for {symbol} sent successfully to {collection_name}")
+                        
+                except Exception as e:
+                    logging.error(f"Error fetching data for {symbol}: {e}")
+                    traceback.print_exc()
+
+    def fetch_and_produce_datastream(self):
+        pass
+    def close_producer(self):
+        if self.producer:
+            
+            self.producer.close()
+            logging.info("Kafka producer closed successfully")
+            
     def schedule_data_fetching(self):
         if self.schedule_time:
             schedule.every().day.at(self.schedule_time).do(self.fetch_and_produce_stock_data)
@@ -90,16 +124,25 @@ class StockDataExtractor:
         else:
             self.fetch_and_produce_stock_data()
             
+    def realtime_data_fetching(self):
+        while True:
+            self.fetch_and_produce_datastream()
+            time.sleep(60)
 # Usage example
 if __name__ == "__main__":
+    
     stock_symbols = [
-        "NVDA", "TSLA", "META", "GOOGL", "PLTR", "GOOG", "BRK.B", "BRK.A", 
+        "NVDA", "TSLA", "META", "GOOGL", "PLTR", "GOOG", 
         "FSLR", "BSX", "GOLD", "EA", "INTU", "SHOP", "ADI", "RMD", 
         "ISRG", "ANET", "VRTX", "WELL", "WAB", "O", "AEM", "VICI", 
         "XYL", "IR", "AME", "VEEV", "FTV", "INFY", "KHC", "SAP", 
         "GRMN", "CP", "TCOM", "ALC", "TW", "EQR", "FAST", "ERIE",
         "TRI", "GIB", "CHT"  
     ]
-
+    
     extractor = StockDataExtractor(symbols=stock_symbols, schedule_time=None)
-    extractor.schedule_data_fetching()
+    
+    try:
+        extractor.schedule_data_fetching()
+    finally:
+        extractor.close_producer()
