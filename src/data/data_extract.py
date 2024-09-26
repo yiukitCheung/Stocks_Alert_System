@@ -106,7 +106,40 @@ class StockDataExtractor:
                     traceback.print_exc()
 
     def fetch_and_produce_datastream(self):
-        pass
+        for interval in ['5m', '30m', '60m']:
+            for symbol in self.symbols:
+                try:
+                    # Fetch data from Yahoo Finance
+                    ticker = yf.Ticker(symbol)
+                    data = ticker.history(start=self.current_date, 
+                                        interval=interval)\
+                                            .reset_index()
+
+                    # Produce data to Kafka
+                    if not data.empty:
+                        for _, record in data.iterrows():
+                            stock_record = {
+                                'symbol': symbol,
+                                'datetime': record['Datetime'].strftime('%Y-%m-%d %H:%M:%S'),
+                                'open': record['Open'],
+                                'high': record['High'],
+                                'low': record['Low'],
+                                'close': record['Close'],
+                                'volume': record['Volume']}
+                            
+                            # Send data to the respective topic
+                            self.producer.send(topic=f'{interval}_stock_datastream', 
+                                                keys = symbol.encdoe('utf-8'),
+                                                value=stock_record)
+                        
+                        # Flush the producer after all messages have been sent
+                        self.producer.flush()
+                        logging.info(f"Data for {symbol} sent successfully to {interval} stock_datastream")
+                        
+                except Exception as e:
+                    logging.error(f"Error fetching data for {symbol}: {e}")
+                    traceback.print_exc()
+                    
     def close_producer(self):
         if self.producer:
             
@@ -125,9 +158,16 @@ class StockDataExtractor:
             self.fetch_and_produce_stock_data()
             
     def realtime_data_fetching(self):
+        # Fetch data every 5 seconds
         while True:
+            # assert pd.to_datetime('now').hour < 14, "Trading hour is over"
+            
             self.fetch_and_produce_datastream()
-            time.sleep(60)
+            time.sleep(5)
+
+            # End if trading hour is over
+            if pd.to_datetime('now').hour >= 14:
+                break
 # Usage example
 if __name__ == "__main__":
     
@@ -143,6 +183,7 @@ if __name__ == "__main__":
     extractor = StockDataExtractor(symbols=stock_symbols, schedule_time=None)
     
     try:
+        extractor.realtime_data_fetching()
         extractor.schedule_data_fetching()
     finally:
         extractor.close_producer()
