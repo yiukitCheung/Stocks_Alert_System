@@ -78,7 +78,8 @@ class StockDataExtractor:
                                 logging.info(f"Data for {symbol} is up to date")
                                 continue
                             else:
-                                data = ticker.history(start=last_date_in_db + pd.Timedelta(days=1), interval=interval).reset_index()
+                                days = last_date_in_db  - self.current_date
+                                data = ticker.history(start=last_date_in_db + pd.Timedelta(days=days), interval=interval).reset_index()
                         else:
                             logging.error(f"Error fetching data for {symbol}")
                             continue
