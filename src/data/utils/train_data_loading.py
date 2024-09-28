@@ -31,7 +31,8 @@ class fetch_and_split_data:
     def fetch_data(self):
         """Fetches stock data from the MongoDB collection and converts it to a Pandas DataFrame."""
         # Fetch the data from MongoDB
-        fetched_data_lst = list(self.collection.find({"symbol": self.symbol}))
+        fetched_data_lst = list(self.collection.find({"symbol": self.symbol,
+                                                    "interval": "daily"}))
 
         # Extract the desired stock symbol's technical data
         if not len(fetched_data_lst) == 0:

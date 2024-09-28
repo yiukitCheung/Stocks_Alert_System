@@ -14,6 +14,7 @@ class StockDataIngestor:
                 daily_collection_name="daily_stock_price",
                 weekly_collection_name="weekly_stock_price"):
 
+        self.current_date = pd.to_datetime('today').strftime('%Y-%m-%d')
         self.schedule_time = schedule_time
         
         # Initialize the MongoDB client
@@ -33,19 +34,7 @@ class StockDataIngestor:
             self.db[collection_name].insert_many(data)
         except Exception as e:
             logging.error(f"Error inserting data: {e}")
-    
-    def update_data(self, collection_name, data):
-        try:
-            self.db[collection_name]\
-                .bulk_write([
-                    UpdateOne({'date': record['date'], 
-                            'symbol': record['symbol']}, 
-                            {'$set': record}, 
-                            upsert=True
-                            ) for record in data])
-        except Exception as e:
-            logging.error(f"Error updating data: {e}")
-            
+        
     def consume_kafka(self):
         self.consumer.subscribe(topics=set([self.daily_topic, self.weekly_topic]))
         try:
@@ -66,13 +55,8 @@ class StockDataIngestor:
                             record['date'] = datetime.strptime(record['date'], '%Y-%m-%d')
                 
                 # If the collection is empty, insert data
-                if not self.db[collection_name].find_one():
-                    self.insert_data(collection_name, records)
-                    print(f"Inserted {len(records)} records into {collection_name}")
-                else:
-                    # Update the data
-                    self.update_data(collection_name, records)
-                    print(f"Updated {len(records)} records in {collection_name}")
+                self.insert_data(collection_name, records)
+                print(f"Inserted {len(records)} records into {collection_name}")
                     
         except KeyboardInterrupt:
             logging.info("Closing consumer")

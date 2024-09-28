@@ -3,23 +3,23 @@ import yfinance as yf
 import json, schedule, time
 import pandas as pd
 from pymongo import MongoClient, DESCENDING
-import traceback
-import logging
+import traceback, logging, datetime
 
 logging.basicConfig(level=logging.INFO)
 
 class StockDataExtractor:
     
-    def __init__(self,symbols,schedule_time,
+    def __init__(self,symbols,
                 mongo_uri="mongodb://localhost:27017/",
                 db_name="local", 
                 daily_collection_name="daily_stock_price",
-                weekly_collection_name="weekly_stock_price"):
+                weekly_collection_name="weekly_stock_price"
+                ):
 
         # Set the class variables
         self.symbols = symbols
-        self.schedule_time = schedule_time
         self.current_date = pd.to_datetime('today').strftime('%Y-%m-%d')
+        self.last_fetch = {symbol: {interval: None for interval in ['5m', '30m', '60m']} for symbol in self.symbols}
         
         # Initialize the MongoDB client
         self.client = MongoClient(mongo_uri)
@@ -65,7 +65,7 @@ class StockDataExtractor:
                     # Fetch data from Yahoo Finance
                     ticker = yf.Ticker(symbol)
                     
-                    # If the symbol does not exist, fetch all data
+                    # Fetch all data if symbol does not exist in the collection
                     if not collection.find_one({"symbol": symbol}):
                         data = ticker.history(period='max', interval=interval).reset_index()
                     else:
@@ -73,13 +73,14 @@ class StockDataExtractor:
                         logging.info(f"{symbol} already exists in the database")
                         latest_record = collection.find_one({'symbol': symbol}, sort=[("date", DESCENDING)])
                         if latest_record:
-                            last_date_in_db = pd.to_datetime(latest_record['date'])
-                            if last_date_in_db.strftime('%Y-%m-%d') == self.current_date:
+                            last_date_in_db = pd.to_datetime(latest_record['date']).strftime('%Y-%m-%d')
+                            if last_date_in_db == self.current_date:
                                 logging.info(f"Data for {symbol} is up to date")
                                 continue
                             else:
-                                days = last_date_in_db  - self.current_date
-                                data = ticker.history(start=last_date_in_db + pd.Timedelta(days=days), interval=interval).reset_index()
+                                # Fetch only the missing data
+                                data = ticker.history(start=last_date_in_db, interval=interval).reset_index()
+                                logging.info(f"Fetching data for {symbol} from {last_date_in_db}")
                         else:
                             logging.error(f"Error fetching data for {symbol}")
                             continue
@@ -96,50 +97,55 @@ class StockDataExtractor:
                                 'close': record['Close'],
                                 'volume': record['Volume']
                             }
-                            self.producer.send(topic=collection_name, value=stock_record)
-                        
-                        # Flush the producer after all messages have been sent
-                        self.producer.flush()
-                        logging.info(f"Data for {symbol} sent successfully to {collection_name}")
-                        
-                except Exception as e:
-                    logging.error(f"Error fetching data for {symbol}: {e}")
-                    traceback.print_exc()
-
-    def fetch_and_produce_datastream(self):
-        for interval in ['5m', '30m', '60m']:
-            for symbol in self.symbols:
-                try:
-                    # Fetch data from Yahoo Finance
-                    ticker = yf.Ticker(symbol)
-                    data = ticker.history(start=self.current_date, 
-                                        interval=interval)\
-                                            .reset_index()
-
-                    # Produce data to Kafka
-                    if not data.empty:
-                        for _, record in data.iterrows():
-                            stock_record = {
-                                'symbol': symbol,
-                                'datetime': record['Datetime'].strftime('%Y-%m-%d %H:%M:%S'),
-                                'open': record['Open'],
-                                'high': record['High'],
-                                'low': record['Low'],
-                                'close': record['Close'],
-                                'volume': record['Volume']}
                             
-                            # Send data to the respective topic
-                            self.producer.send(topic=f'{interval}_stock_datastream', 
-                                                keys = symbol.encdoe('utf-8'),
-                                                value=stock_record)
-                        
+                            self.producer.send(topic=collection_name, value=stock_record)
+                            
+            
                         # Flush the producer after all messages have been sent
                         self.producer.flush()
-                        logging.info(f"Data for {symbol} sent successfully to {interval} stock_datastream")
-                        
+                        # Log the success message
+                        logging.info(f"Data for {symbol} until {stock_record['date']} sent successfully to {collection_name}")                     
                 except Exception as e:
                     logging.error(f"Error fetching data for {symbol}: {e}")
                     traceback.print_exc()
+                # Check the last reocrd date in the symbol
+                logging.info(f"Fetching data for {symbol} completed!")
+    
+    def fetch_and_produce_datastream(self, interval):
+        for symbol in self.symbols:
+            try:
+                start_date = self.last_fetch[symbol][interval] or self.current_date
+                # Fetch data from Yahoo Finance
+                ticker = yf.Ticker(symbol)
+                data = ticker.history(start=start_date, interval=interval).reset_index()
+                
+                # Produce data to Kafka
+                if not data.empty:
+                    for _, record in data.iterrows():
+                        stock_record = {
+                            'symbol': symbol,
+                            'datetime': record['Datetime'].strftime('%Y-%m-%d %H:%M:%S'),
+                            'open': record['Open'],
+                            'high': record['High'],
+                            'low': record['Low'],
+                            'close': record['Close'],
+                            'volume': record['Volume']
+                        }
+                        
+                        # Send data to the respective topic
+                        self.producer.send(topic=f'{interval}_stock_datastream', 
+                                        key=symbol.encode('utf-8'),
+                                        value=stock_record)
+                    
+                    # Update the last fetch time
+                    self.last_fetch[symbol][interval] = pd.to_datetime('now')
+                    # Flush the producer after all messages have been sent
+                    self.producer.flush()
+                    logging.info(f"Data for {symbol} until {stock_record['datetime']} sent successfully to {interval} stock_datastream")
+                    
+            except Exception as e:
+                logging.error(f"Error fetching data for {symbol}: {e}")
+                traceback.print_exc()
                     
     def close_producer(self):
         if self.producer:
@@ -147,28 +153,33 @@ class StockDataExtractor:
             self.producer.close()
             logging.info("Kafka producer closed successfully")
             
-    def schedule_data_fetching(self):
-        if self.schedule_time:
-            schedule.every().day.at(self.schedule_time).do(self.fetch_and_produce_stock_data)
-            logging.info(f"Scheduled fetching and producing stock data at {self.schedule_time}")
-
+    def start_scheduled_datastream_consuming(self):
+        
+        # # Fetch data immediately for all intervals
+        # for interval in ['5m', '30m', '60m']:
+        #     self.fetch_and_produce_datastream(interval)
+        
+        if pd.to_datetime('now').hour < 14:
+            # Schedule datastream consuming tasks for different intervals
+            for mintue in range(5, 60, 5):
+                schedule.every().hour.at(f":{mintue:02d}").do(self.fetch_and_produce_datastream, interval='5m')
+            for mintue in range(30, 60, 30):
+                schedule.every().hour.at(f":{mintue:02d}").do(self.fetch_and_produce_datastream, interval='30m')
+                
+            schedule.every().hour.at(":00").do(self.fetch_and_produce_datastream, interval='60m')
+            
             while True:
                 schedule.run_pending()
                 time.sleep(1)
-        else:
+                #  End if trading hour is over
+                
+        if pd.to_datetime('now').hour >= 14:
+            print("Trading hour is over!")
+            # Consume and Ingest daily and weekly stock data
             self.fetch_and_produce_stock_data()
-            
-    def realtime_data_fetching(self):
-        # Fetch data every 5 seconds
-        while True:
-            # assert pd.to_datetime('now').hour < 14, "Trading hour is over"
-            
-            self.fetch_and_produce_datastream()
-            time.sleep(5)
+            logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
 
-            # End if trading hour is over
-            if pd.to_datetime('now').hour >= 14:
-                break
+            
 # Usage example
 if __name__ == "__main__":
     
@@ -178,13 +189,7 @@ if __name__ == "__main__":
         "ISRG", "ANET", "VRTX", "WELL", "WAB", "O", "AEM", "VICI", 
         "XYL", "IR", "AME", "VEEV", "FTV", "INFY", "KHC", "SAP", 
         "GRMN", "CP", "TCOM", "ALC", "TW", "EQR", "FAST", "ERIE",
-        "TRI", "GIB", "CHT"  
-    ]
+        "TRI", "GIB", "CHT"]
     
-    extractor = StockDataExtractor(symbols=stock_symbols, schedule_time=None)
-    
-    try:
-        extractor.realtime_data_fetching()
-        extractor.schedule_data_fetching()
-    finally:
-        extractor.close_producer()
+    extractor = StockDataExtractor(symbols=stock_symbols)
+    extractor.start_scheduled_datastream_consuming()
