@@ -2,132 +2,176 @@ import pandas as pd
 import pymongo
 import plotly.graph_objects as go
 import plotly.subplots as sp
-
+import streamlit as st
 from utils.alert_strategy import Alert
 from utils.trading_strategy import TradingStrategy
 from utils.features_engineering import add_features
-import streamlit as st
-import pandas as pd
+import time
 
-class StockDataViz:
-    def __init__(self, db_uri="mongodb://localhost:27017/", 
-                db_name="local", 
-                collection_name="daily_stock_price"):
+# Constants
+MONGO_URI = "mongodb://localhost:27017/"
+DB_NAME = "local"
+COLLECTION_NAME = "daily_stock_price"
+STREAMING_DB_NAME = "streaming_data"
+STREAMING_COLLECTIONS = ['5m_stock_datastream', '30m_stock_datastream', '60m_stock_datastream']
+
+def connect_to_mongo(db_uri=MONGO_URI, db_name=DB_NAME, collection_name=COLLECTION_NAME):
+    client = pymongo.MongoClient(db_uri)
+    db = client[db_name]
+    collection = db[collection_name]
+    return collection
+
+def fetch_stock_data(collection, stock_symbol):
+    filtered_query = collection.find({"symbol": stock_symbol}, {"_id": 0})
+    return pd.DataFrame(list(filtered_query))
+
+def add_technical_features(filtered_df):
+    filtered_df = add_features(filtered_df).apply()
+    filtered_df = Alert(filtered_df).add_alert()
+    return filtered_df
+
+def execute_trades(filtered_df):
+    trades_history = TradingStrategy(filtered_df)
+    trades_history.execute_trades()
+    return trades_history.get_trades()
+
+def create_figure(filtered_df, filtered_trades):
+    fig = sp.make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.1, row_heights=[0.65, 0.15, 0.25])
+
+    fig.add_trace(go.Candlestick(
+        x=filtered_df['date'],
+        open=filtered_df['open'],
+        high=filtered_df['high'],
+        low=filtered_df['low'],
+        close=filtered_df['close'],
+        name='price'), row=1, col=1)
+
+    for ema in ['144EMA', '169EMA', '13EMA', '8EMA']:
+        fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df[ema], mode="lines", name=ema), row=1, col=1)
+
+    for trade_type, color in [('Entry', 'rgba(0,255,0,0.7)'), ('Exit', 'rgba(255,0,0,0.7)')]:
+        fig.add_trace(go.Scatter(
+            x=filtered_trades[f'{trade_type}_date'],
+            y=filtered_trades[f'{trade_type}_price'],
+            mode="markers",
+            customdata=filtered_trades,
+            marker_symbol="diamond-dot",
+            marker_size=8,
+            marker_line_width=2,
+            marker_line_color="rgba(0,0,0,0.7)",
+            marker_color=color,
+            hovertemplate=f"{trade_type} Time: %{{customdata[1]}}<br>{trade_type} Price: %{{y:.2f}}<br>Total Asset: %{{customdata[5]:.3f}}",
+            name=f"{trade_type}s"), row=1, col=1)
+
+    fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df['MACD'], mode='lines', name='MACD'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df['MACD_SIGNAL'], mode='lines', name='MACD signal'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=filtered_trades['Exit_date'], y=filtered_trades['total_asset'], mode='lines', name='Profit', line=dict(color='green')), row=3, col=1)
+
+    fig.update_xaxes(title_text="Date", row=3, col=1)
+    fig.update_yaxes(title_text="Profit/Loss", row=3, col=1)
+    fig.update_layout(xaxis_rangeslider_visible=False, autosize=False, showlegend=False, height=800, width=1200)
+
+    return fig
+
+def static_analysis_page():
+    st.title("Stock Analysis Dashboard")
+    st.sidebar.header("Stock Selector")
+    
+    collection = connect_to_mongo()
+    stock_selector = st.sidebar.selectbox('Select Stock', options=sorted(collection.distinct("symbol")), index=0)
+    
+    filtered_df = fetch_stock_data(collection, stock_selector)
+    filtered_df = add_technical_features(filtered_df)
+    filtered_trades = execute_trades(filtered_df)
+    fig = create_figure(filtered_df, filtered_trades)
+
+    st.plotly_chart(fig, use_container_width=True)
+
+def initialize_mongo_client(mongo_uri=MONGO_URI, db_name=STREAMING_DB_NAME):
+    client = pymongo.MongoClient(mongo_uri)
+    return client[db_name]
+
+def get_current_date():
+    current_date = pd.to_datetime('today').normalize()
+    if current_date.weekday() in [5, 6]:  # Saturday or Sunday
+        current_date -= pd.Timedelta(days=current_date.weekday() - 4)
+    elif current_date.weekday() == 0 and pd.to_datetime('today').hour < 9:  # Monday before 9:30
+        current_date -= pd.Timedelta(days=3)
+    elif pd.to_datetime('today').hour < 9:  # Weekday before 9:30
+        current_date -= pd.Timedelta(days=1)
+    return current_date.replace(hour=9, minute=30).strftime('%Y-%m-%d %H:%M')
+
+def fetch_data(db, collection_name, symbol, current_date):
+    return db[collection_name].find({"symbol": symbol, "datetime": {"$gte": pd.to_datetime(current_date)}})
+
+def fetch_alerts(db, collection_name, symbol, interval, current_date, alert_type=None):
+    query = {"symbol": symbol, "interval": interval, "datetime": {"$gte": pd.to_datetime(current_date)}}
+    if alert_type:
+        query[alert_type] = True
+    return db[collection_name].find(query)
+
+def plot_candlestick_chart(filtered_df, filtered_live_alerts, stock_selector, interval):
+    candlestick_chart = go.Figure(data=[go.Candlestick(
+        x=filtered_df.index, 
+        open=filtered_df['open'], 
+        high=filtered_df['high'], 
+        low=filtered_df['low'], 
+        close=filtered_df['close']
+    )])
+    
+    for _, alert in filtered_live_alerts.iterrows():
+        if alert['datetime'] in filtered_df.index:
+            candlestick_chart.add_annotation(
+                x=alert['datetime'],
+                y=filtered_df.loc[alert['datetime'], 'close'],
+                text="Bullish Engulfing",
+                showarrow=True,
+                arrowhead=1
+            )
+    candlestick_chart.update_layout(xaxis_rangeslider_visible=False, showlegend=False, title=f'{stock_selector} Candlestick Chart ({interval})')
+    return candlestick_chart
+
+def live_alert_page():
+    st.sidebar.header("Stock Selector")
+
+    db = initialize_mongo_client()
+    options = sorted(db[STREAMING_COLLECTIONS[0]].distinct("symbol"))
+    current_date = get_current_date()
+
+    st.title('Live Alert Tracking Dashboard')
+    stock_selector = st.sidebar.selectbox('Select Stock', options=options, index=0)
+    
+    chart_placeholders = {interval: st.empty() for interval in ['5m', '30m', '60m']}
+    interval_topic_map = {interval: f'{interval}_stock_datastream' for interval in ['5m', '30m', '60m']}
+
+    def update_chart(interval):
+        selected_topic = interval_topic_map[interval]
+        filtered_query = fetch_data(db, selected_topic, stock_selector, current_date)
+        filtered_live_alerts_query = fetch_alerts(db, 'stock_live_alert', stock_selector, interval, current_date, alert_type="bullish_engulfer")
+
+        filtered_df = pd.DataFrame(list(filtered_query))
+        filtered_live_alerts = pd.DataFrame(list(filtered_live_alerts_query))
+
+        if not filtered_df.empty:
+            filtered_df['datetime'] = pd.to_datetime(filtered_df['datetime'])
+            filtered_df.set_index('datetime', inplace=True)
+            candlestick_chart = plot_candlestick_chart(filtered_df, filtered_live_alerts, stock_selector, interval)
+            chart_placeholders[interval].plotly_chart(candlestick_chart)
+        else:
+            chart_placeholders[interval].write(f"No data available for {stock_selector} in {interval} interval")
+            
+    for interval in ['5m', '30m', '60m']:
+        update_chart(interval)
+def main():
+    st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
+    
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio("Go to", ["live_alert_page", "static_analysis_page"])
+    
+    if page == "live_alert_page":
+        live_alert_page()
+    elif page == "static_analysis_page":    
+        static_analysis_page()
         
-        # Connect to MongoDB
-        self.client = pymongo.MongoClient(db_uri)
-        # Select the database
-        self.db = self.client[db_name]
-        # Select the collection
-        self.collection = self.db[collection_name]
-
-    def run(self):
-        # Initialize Streamlit app
-        st.title('Stock Data Visualization')
-
-        # Dropdown for stock selection
-        stock_selector = st.selectbox(
-            'Select Stock',
-            options=self.collection.distinct("symbol"),
-            index=0
-        )
-
-        # Fetch specific stock
-        filtered_query = self.collection.find({"symbol": f"{stock_selector}"})
-        # Convert to pandas dataframe
-        filtered_df = pd.DataFrame(list(filtered_query))   
-        # Add technical features
-        filtered_df = add_features(filtered_df).apply()
-
-        # Add Alerts
-        filtered_df = Alert(filtered_df).add_alert()
-
-        # Sandbox Testing
-        trades_history = TradingStrategy(filtered_df)
-        trades_history.execute_trades()
-        filtered_trades = trades_history.get_trades()
-
-        # Create figure with subplots
-        fig = sp.make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.1, row_heights=[0.65, 0.15, 0.25])
-
-        # Candlestick chart
-        fig.add_trace(go.Candlestick(
-            x=filtered_df['date'],
-            open=filtered_df['open'],
-            high=filtered_df['high'],
-            low=filtered_df['low'],
-            close=filtered_df['close'],
-            name='price'), row=1, col=1)
-
-        # Add EMA traces as lines
-        fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df['144EMA'], 
-                                mode="lines", name="EMA 144"), row=1, col=1)
-        fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df['169EMA'],
-                                mode="lines", name="EMA 169"), row=1, col=1)
-        fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df['13EMA'],
-                                mode="lines", name="EMA 13"), row=1, col=1)
-        fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df['8EMA'],
-                                mode="lines", name="EMA 8"), row=1, col=1)
-
-        # Add Buy / Sell Annotations
-        fig.add_trace(go.Scatter(
-                        x=filtered_trades.Entry_date,
-                        y=filtered_trades.Entry_price,
-                        mode="markers",
-                        customdata=filtered_trades,
-                        marker_symbol="diamond-dot",
-                        marker_size=8,
-                        marker_line_width=2,
-                        marker_line_color="rgba(0,0,0,0.7)",
-                        marker_color="rgba(0,255,0,0.7)",
-                        hovertemplate="Entry Time: %{customdata[1]}<br>" +\
-                            "Entry Price: %{y:.2f}<br>" +\
-                            "Total Asset: %{customdata[5]:.3f}",
-                        name="Entries"), row=1, col=1)
-
-        fig.add_trace(go.Scatter(
-                        x=filtered_trades.Exit_date,
-                        y=filtered_trades.Exit_price,
-                        mode="markers",
-                        customdata=filtered_trades,
-                        marker_symbol="diamond-dot",
-                        marker_size=8,
-                        marker_line_width=2,
-                        marker_line_color="rgba(0,0,0,0.7)",
-                        marker_color="rgba(255,0,0,0.7)",
-                        hovertemplate="Exit Time: %{customdata[1]}<br>" +\
-                            "Exit Price: %{y:.2f}<br>" +\
-                            "Total Asset: %{customdata[5]:.3f}",
-                        name="Exits"), row=1, col=1)
-
-        # Add MACD subplot
-        fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df['MACD'], 
-                                mode='lines', name='MACD'), row=2, col=1)
-        fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df['MACD_SIGNAL'],
-                                mode='lines', name='MACD signal'), row=2, col=1)
-
-        # Add Profit subplot with conditional coloring
-        fig.add_trace(go.Scatter(x=filtered_trades['Exit_date'], y=filtered_trades['total_asset'], 
-                                mode='lines', name='Profit', line=dict(color='green')),
-                    row=3, col=1)
-
-        # Set x and y axis titles
-        fig.update_xaxes(title_text="Date", row=3, col=1)
-        fig.update_yaxes(title_text="Profit/Loss", row=3, col=1)
-
-        # Layout settings
-        fig.update_layout(
-            xaxis_rangeslider_visible=False,
-            autosize=False,
-            showlegend=False,
-            height=800,
-            width=1200,
-        )
-
-        # Display the figure in Streamlit
-        st.plotly_chart(fig, use_container_width=True)
-
-# To run the app
 if __name__ == "__main__":
-    app = StockDataViz()
-    app.run()
+    main()

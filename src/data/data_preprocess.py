@@ -1,3 +1,4 @@
+
 import pymongo
 import pandas as pd
 import logging
@@ -78,20 +79,20 @@ class DataPreprocess:
                 latest_record = self.db[self.tech_collection_name]\
                     .find_one({"symbol": symbol, "interval": collection.split("_")[0]}, 
                             sort=[('timestamp', pymongo.DESCENDING)])  
-                print(latest_record)
-                break
+                
                 if latest_record:
                     last_date_in_db = latest_record['date']
+                    # Check if the data is up to date
                     if last_date_in_db.strftime('%Y-%m-%d') == self.current_date:
                         logging.info(f"Data for {symbol} is up to date")
                         continue
-                    else:
-                        # Insert only the new records
-                        new_records = processed_df[processed_df['date'] > last_date_in_db]
-                        self.insert_technical_data(symbol, new_records, collection.split("_")[0])
-                        
-                if processed_df is not None:
-                    self.insert_technical_data(symbol, processed_df, collection.split("_")[0])
+                    new_records = processed_df[processed_df['date'] > last_date_in_db]
+                # If the symbol does not exist in the technical collection
+                else:
+                    new_records = processed_df
+                
+                if not new_records.empty:
+                    self.insert_technical_data(symbol, new_records, collection.split("_")[0])
                     added_technical += 1
                     logging.info(f"{(added_technical/total_symbols) * 100:.2f}% Technical data added successfully for {symbol}!")
 

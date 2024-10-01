@@ -18,7 +18,7 @@ class StockDataExtractor:
 
         # Set the class variables
         self.symbols = symbols
-        self.current_date = pd.to_datetime('today').strftime('%Y-%m-%d')
+        self.current_date = (pd.to_datetime("today")).strftime('%Y-%m-%d')
         self.last_fetch = {symbol: {interval: None for interval in ['5m', '30m', '60m']} for symbol in self.symbols}
         
         # Initialize the MongoDB client
@@ -136,13 +136,12 @@ class StockDataExtractor:
                         self.producer.send(topic=f'{interval}_stock_datastream', 
                                         key=symbol.encode('utf-8'),
                                         value=stock_record)
-                    
                     # Update the last fetch time
                     self.last_fetch[symbol][interval] = pd.to_datetime('now')
                     # Flush the producer after all messages have been sent
                     self.producer.flush()
                     logging.info(f"Data for {symbol} until {stock_record['datetime']} sent successfully to {interval} stock_datastream")
-                    
+
             except Exception as e:
                 logging.error(f"Error fetching data for {symbol}: {e}")
                 traceback.print_exc()
@@ -155,30 +154,33 @@ class StockDataExtractor:
             
     def start_scheduled_datastream_consuming(self):
         
-        # # Fetch data immediately for all intervals
-        # for interval in ['5m', '30m', '60m']:
-        #     self.fetch_and_produce_datastream(interval)
-        
-        if pd.to_datetime('now').hour < 14:
-            # Schedule datastream consuming tasks for different intervals
-            for mintue in range(5, 60, 5):
-                schedule.every().hour.at(f":{mintue:02d}").do(self.fetch_and_produce_datastream, interval='5m')
-            for mintue in range(30, 60, 30):
-                schedule.every().hour.at(f":{mintue:02d}").do(self.fetch_and_produce_datastream, interval='30m')
+        # Fetch data immediately for all intervals
+        for interval in ['5m', '30m', '60m']:
+            self.fetch_and_produce_datastream(interval)
+        # trading = True
+        # if pd.to_datetime('now').hour < 14:
+        #     # Schedule datastream consuming tasks for different intervals
+        #     for mintue in range(5, 60, 5):
+        #         schedule.every().hour.at(f":{mintue:02d}").do(self.fetch_and_produce_datastream, interval='5m')
+        #     for mintue in range(30, 60, 30):
+        #         schedule.every().hour.at(f":{mintue:02d}").do(self.fetch_and_produce_datastream, interval='30m')
                 
-            schedule.every().hour.at(":00").do(self.fetch_and_produce_datastream, interval='60m')
+        #     schedule.every().hour.at(":00").do(self.fetch_and_produce_datastream, interval='60m')
             
-            while True:
-                schedule.run_pending()
-                time.sleep(1)
-                #  End if trading hour is over
+        #     while trading:
+        #         schedule.run_pending()
+        #         time.sleep(1)
+        #         if pd.to_datetime('now').hour >= 14:
+        #             trading = False 
+            
+        #         #  End if trading hour is over
                 
-        if pd.to_datetime('now').hour >= 14:
-            print("Trading hour is over!")
-            # Consume and Ingest daily and weekly stock data
-            self.fetch_and_produce_stock_data()
-            logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
-
+        # if pd.to_datetime('now').hour >= 14:
+        #     print("Trading hour is over!")
+        #     # Consume and Ingest daily and weekly stock data
+        #     self.fetch_and_produce_stock_data()
+        #     logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
+        
             
 # Usage example
 if __name__ == "__main__":
