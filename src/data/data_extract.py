@@ -177,6 +177,7 @@ class StockDataExtractor:
                 
         # if pd.to_datetime('now').hour >= 14:
         #     print("Trading hour is over!")
+        #     time.sleep(5)
         #     # Consume and Ingest daily and weekly stock data
         #     self.fetch_and_produce_stock_data()
         #     logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")

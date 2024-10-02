@@ -21,6 +21,7 @@ class DataStreamProcess:
         self.batch = {}
         self.candle = {}
         self.last_processed_index = {}
+        self.last_processed_interval = None
         self.window = lookback
         self.pointer_a = 0
         self.pointer_b = 1
@@ -70,7 +71,7 @@ class DataStreamProcess:
         # Ensure value['date'] is timezone-aware
         if value['date'].tzinfo is None:
             value['date'] = value['date'].replace(tzinfo=timezone.utc)
-
+            
         # Insert tprint(last_record)he new record if the collection is empty or the new date is greater than the last date
         if not last_record or last_record[0]['date'] < value['date']:
             
@@ -184,70 +185,86 @@ class DataStreamProcess:
             self.batch[symbol] = []
             
     def streaming_process(self, data, interval):
-
+        # Store the processed index in a dict
+        if data['symbol'] not in self.last_processed_index:
+            self.last_processed_index[data['symbol']] = -1
+            self.last_processed_interval = interval 
+        
         # Store the candle data in a dict
         if data['symbol'] not in self.candle:
             self.candle[data['symbol']] = []
-        
-        # Store the processed index in a dict
-        if data['symbol'] not in self.last_processed_index:
-            self.last_processed_index[data['symbol']] = 0
-            self.last_processed_index['interval'] = interval
-
-        if self.last_processed_index['interval'] != interval:
-            self.last_processed_index[data['symbol']] = 0
-            self.last_processed_index['interval'] = interval
-            self.pointer_a = 0
-            self.pointer_b = 1
-            
-        # Reset the pointers if the last processed index is 0
-        if self.last_processed_index[data['symbol']] == 0:
-            self.pointer_a = 0
-            self.pointer_b = 1
             
         self.candle[data['symbol']].append(data)
 
+        # If interval changes, reset the last processed index
+        if self.last_processed_interval != interval:
+            self.last_processed_interval = interval
+            self.pointer_a = 0
+            self.pointer_b = 1
+            for symbol in self.last_processed_index:
+                self.last_processed_index[symbol] = -1
+            
         # Loop through the candle data from the last processed index
-        for i in range(self.last_processed_index[data['symbol']] + 1 ,len(self.candle[data['symbol']])):
-            candle = self.candle[data['symbol']][i]
-            candle_pattern = CandlePattern(candle)
-
-            # Check for bullish 0.382 candle patterns
-            bullish_382, bullish_382_date  = candle_pattern.hammer_alert()
-
-            # Check for engulfing patterns
+        for i in range(self.last_processed_index[data['symbol']] + 1, len(self.candle[data['symbol']])):
+            if self.last_processed_index[data['symbol']] == -1:
+                
+                self.pointer_a = 0
+                self.pointer_b = 1
+                curr_candle = self.candle[data['symbol']][self.pointer_a]
+                candle_pattern = CandlePattern(curr_candle)
+                hammer, hammer_date = candle_pattern.hammer_alert()
+    
+                if not candle_pattern.no_volume():
+                    if hammer:
+                        # Print the hammer candle
+                        self.store_live_alert(data['symbol'], {'symbol': data['symbol'],'interval': interval, 'datetime': hammer_date, 'alert_type':'hammer'},
+                                            interval)
+                        logging.info(f"Hammer Alert for {data['symbol']} in interval {interval} sent to Kafka")
+                else:
+                    continue
+            curr_candle = self.candle[data['symbol']][i]
+            candle_pattern = CandlePattern(curr_candle)
+            # Check if there are enough candles to compare
+            
             if len(self.candle[data['symbol']]) > 1 and self.pointer_b < len(self.candle[data['symbol']]):
                 pre_candle = self.candle[data['symbol']][self.pointer_a]
                 curr_candle = self.candle[data['symbol']][self.pointer_b]
                 
-                bullish_engulfing, bearish_engulfing, date = candle_pattern.engulf_alert(pre_candle, curr_candle)
+                # Check for bullish 0.382 candle patterns
+                bullish_382, bullish_382_date = candle_pattern.hammer_alert()
 
+                # Check for engulfing patterns
+                bullish_engulfing, bearish_engulfing, date = candle_pattern.engulf_alert(pre_candle, curr_candle)
+                
                 # Store the alert to the mongoDB
-                if bullish_382:
-                    self.store_live_alert(data['symbol'], 
-                                        {'symbol': data['symbol'],'interval': interval ,'datetime': bullish_382_date, 'bullish_382': True},
-                                        interval)
-                    logging.info(f"Bullish 0.382 Alert for {data['symbol']} in interval {interval} sent to Kafka")
-                elif bullish_engulfing:
-                    self.store_live_alert(data['symbol'], {'symbol': data['symbol'],'interval': interval, 'datetime': date, 'bullish_engulfer': True},
-                                        interval)
-                    logging.info(f"Bullish Engulfing Alert for {data['symbol']} in interval {interval} sent to Kafka")
-                elif bearish_engulfing:
-                    self.store_live_alert(data['symbol'], {'symbol': data['symbol'],'interval': interval, 'datetime': date, 'bearish_engulfer': True},
-                                        interval)
-                    logging.info(f"Bearish Engulfing Alert for {data['symbol']} in interval {interval} sent to Kafka")
-                    
-                # Update the last processed index
-                self.last_processed_index[data['symbol']] = i
-                self.pointer_a += 1
-                self.pointer_b += 1
-                break
-            
+                if not candle_pattern.no_volume():
+                    if bearish_engulfing:
+                        value =  {'symbol': data['symbol'],'interval': interval, 'datetime': date, 'alert_type':'bearish_engulfer'}
+                        self.store_live_alert(data['symbol'], value, interval)
+                        logging.info(f"Bearish Engulfing Alert for {data['symbol']} in interval {interval}  at {date} sent to Kafka")
+                    elif bullish_engulfing:
+                        value = {'symbol': data['symbol'],'interval': interval, 'datetime': date, 'alert_type':'bullish_engulfer'}
+                        self.store_live_alert(data['symbol'], value, interval)
+                        logging.info(f"Bullish Engulfing Alert for {data['symbol']} in interval {interval} at {date} sent to Kafka")
+                    elif bullish_382:
+                        value = {'symbol': data['symbol'],'interval': interval, 'datetime': bullish_382_date, 'alert_type':'bullish_382'}
+                        self.store_live_alert(data['symbol'], value , interval)
+                        logging.info(f"Bullish 0.382 Alert for {data['symbol']} in interval {interval} at {bullish_382_date} sent to Kafka")
+                        
+                # Update the last processed index for the symbol
+                self.last_processed_index[data['symbol']] = self.pointer_b
+
+            # Update the last processed index
+            self.pointer_a += 1
+            self.pointer_b += 1
+
+            break
+        
     def fetch_and_transform_datastream(self):
         self.consumer.subscribe(topics=set(self.datastream_topics))
         while True:
             messages = self.consumer.poll(timeout_ms=1000)
-            if messages is None:
+            if not messages:
                 logging.info("No new messages")
                 continue
             for topic_partition, consumer_records in messages.items():
@@ -256,14 +273,14 @@ class DataStreamProcess:
                     symbol = record.key
                     value = record.value
                     topic = topic_partition.topic
-                    # Store the data in mongdoDB
-                    self.store_datastream(symbol,value, topic)
-
-                    # Process the record
                     interval = topic.split('_')[0]
-                    self.streaming_process(value,interval)
-                    self.batch_process(symbol=symbol, records=value, interval=interval)    
-                                        
+                    
+                    # Store the data in MongoDB
+                    # self.store_datastream(symbol, value, topic)
+                    # Process the record
+                    self.streaming_process(value, interval)
+                    # self.batch_process(symbol=symbol, records=value, interval=interval)
+                
 if __name__ == '__main__':
     datastream = DataStreamProcess(lookback=15)
     datastream.fetch_and_transform_datastream()

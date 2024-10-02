@@ -3,17 +3,19 @@ import pandas as pd
 class CandlePattern:
     def __init__(self, candle: pd.DataFrame):
         self.candle = candle
-
+        self.body_size = abs(self.candle['close'] - self.candle['open'])
+        self.lower_shadow = min(self.candle['open'], self.candle['close']) - self.candle['low']
+        self.upper_shadow = self.candle['high'] - max(self.candle['open'], self.candle['close']) 
+    
+    def no_volume(self):
+        return self.candle['close'] == self.candle['open'] == self.candle['high'] == self.candle['low']
+    
     def hammer_alert(self):
         # Hammer candle pattern: small body, long lower shadow, little or no upper shadow
-        body_size = abs(self.candle['close'] - self.candle['open'])
-        lower_shadow = self.candle['low'] - min(self.candle['open'], self.candle['close'])
-        upper_shadow = max(self.candle['open'], self.candle['close']) - self.candle['high']
-        
         is_hammer = (
-            (body_size <= (self.candle['high'] - self.candle['low']) * 0.3) &  # Small body
-            (lower_shadow >= (self.candle['high'] - self.candle['low']) * 0.5) &  # Long lower shadow
-            (upper_shadow <= (self.candle['high'] - self.candle['low']) * 0.1)  # Little or no upper shadow
+            (self.body_size <= (self.candle['high'] - self.candle['low']) * 0.3) &  # Small body
+            (self.lower_shadow >= (self.candle['high'] - self.candle['low']) * 0.7) &  # Long lower shadow
+            (self.upper_shadow <= (self.candle['high'] - self.candle['low']) * 0.1)  # Little or no upper shadow
         )
         
         date = pd.to_datetime(self.candle['datetime']).strftime('%Y-%m-%d %H:%M:%S')
@@ -35,9 +37,9 @@ class CandlePattern:
             (current_open < min(prev_open, prev_close)) & 
             (current_close > max(prev_open, prev_close)) &
             ((current_close - current_open) > abs(prev_close - prev_open) * 1.5) &  # Current candle significantly larger
-            ((current_high - current_close) <= (current_close - current_open) * 0.3)  # Little or no upper shadow
+            ((current_high - current_close) * 0.7 <= (current_close - current_open)) # Little or no upper shadow
         )
-
+        
         # Bearish Engulfing: current red candle engulfs previous candle
         bearish_engulfing = (
             (current_close < current_open) &  # Current candle is red
@@ -48,3 +50,4 @@ class CandlePattern:
         date = pd.to_datetime(current_candle['datetime']).strftime('%Y-%m-%d %H:%M:%S')
         
         return bullish_engulfing, bearish_engulfing, date
+

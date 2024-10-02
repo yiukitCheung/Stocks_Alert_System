@@ -41,9 +41,7 @@ class StockDataIngestor:
             while True:
                 msg = self.consumer.poll(timeout_ms=1000)
                 if len(msg) == 0:
-                    print("No new messages") # Wait for new messages
                     continue
-                
                 # Extract data from ConsumerRecord
                 for topic_partition, consumer_records in msg.items():
                     # Extract the value from the ConsumerRecord
