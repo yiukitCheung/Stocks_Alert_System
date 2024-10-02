@@ -73,6 +73,7 @@ class DataStreamProcess:
             value['date'] = value['date'].replace(tzinfo=timezone.utc)
             
         # Insert tprint(last_record)he new record if the collection is empty or the new date is greater than the last date
+        logging.info(f"Last record: {last_record} | Value: {value['date']}")
         if not last_record or last_record[0]['date'] < value['date']:
             
             self.db[topic].insert_one(value)
@@ -81,6 +82,7 @@ class DataStreamProcess:
             logging.info(f"Record for {symbol} in {topic} is not newer than the last record")
             
     def store_live_alert(self,symbol,value,interval):
+        
         if "stock_live_alert" not in self.db.list_collection_names():
             self.db.create_collection(
                 "stock_live_alert",
@@ -100,7 +102,8 @@ class DataStreamProcess:
             value['date'] = value['datetime'].to_pydatetime()
 
         # Fetch the last record for the given symbol
-        last_record = list(self.db["stock_live_alert"].find({"symbol": symbol, "interval": interval}).sort("date", DESCENDING).limit(1))
+        last_record = list(self.db["stock_live_alert"].find({"symbol": symbol, 
+                                                            "interval": interval}).sort("date", DESCENDING).limit(1))
         
         # Ensure last_record[0]['date'] is timezone-aware
         if last_record:
@@ -155,7 +158,6 @@ class DataStreamProcess:
             logging.info(f"Inserted new record for {symbol} in stock_batch_alert")
         else:
             logging.info(f"Record for {symbol} in stock_batch_alert is not newer than the last record")
-            
     
     def batch_process(self, symbol, records, interval):
         # Store price subsequently in a dict
@@ -169,18 +171,19 @@ class DataStreamProcess:
             df = pd.DataFrame(self.batch[symbol])
         
             # Extract the strong support and resistance
-            support, sup_datetime = trend_pattern(lookback=self.window, batch_data=df).strong_support()
-            resistance, res_datetime = trend_pattern(lookback=self.window, batch_data=df).strong_resistance()
+            support = trend_pattern(lookback=self.window, batch_data=df).strong_support()
+            resistance = trend_pattern(lookback=self.window, batch_data=df).strong_resistance()
             
             # Store Alert to MongoDB
-            if support:
-                for i in range(len(support)):
-                    self.store_batch_alert(symbol, {'symbol': symbol,'interval': interval, 'datetime': sup_datetime[i], 'support': support[i]})    
-            if resistance:
-                for i in range(len(resistance)):
-                    self.store_batch_alert(symbol, {'symbol': symbol,'interval': interval, 'datetime': res_datetime[i], 'resistance': resistance[i]})
+            if len(support) != 0:
+                for i in support.itertuples():
+                    self.store_batch_alert(symbol, {'symbol': symbol,'interval': interval, 'datetime': i.datetime, 'support': i.low})    
+            if len(resistance) != 0:
+                for i in resistance.itertuples():
+                    self.store_batch_alert(symbol, {'symbol': symbol,'interval': interval, 'datetime':  i.datetime, 'resistance': i.high})
             
             logging.info(f"Batch Alert for {symbol} sent to Kafka")
+            
             # Clear the batch for the symbol after processing
             self.batch[symbol] = []
             
@@ -276,10 +279,10 @@ class DataStreamProcess:
                     interval = topic.split('_')[0]
                     
                     # Store the data in MongoDB
-                    # self.store_datastream(symbol, value, topic)
+                    self.store_datastream(symbol, value, topic)
                     # Process the record
                     self.streaming_process(value, interval)
-                    # self.batch_process(symbol=symbol, records=value, interval=interval)
+                    self.batch_process(symbol=symbol, records=value, interval=interval)
                 
 if __name__ == '__main__':
     datastream = DataStreamProcess(lookback=15)

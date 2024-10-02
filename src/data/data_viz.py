@@ -39,11 +39,46 @@ def execute_trades(filtered_df):
     trades_history.execute_trades()
     return trades_history.get_trades()
 
-def create_figure(filtered_df, filtered_trades, show_macd=False):
+@ st.cache_data
+def compute_metrics(filtered_trades):
     win_trades = len(filtered_trades[filtered_trades['profit'] > 0])
     loss_trades = len(filtered_trades[filtered_trades['profit'] <= 0])
-    final_trade_profit = filtered_trades['profit'].iloc[-1]
+    final_trade_profit_rate = (round(filtered_trades['total_asset'].iloc[-1]) - 10000) / 100
+    return [win_trades, loss_trades, final_trade_profit_rate]
+
+def create_figure(filtered_df,filtered_trades, show_macd=False):
+    win_trades, loss_trades, final_trade_profit_rate = compute_metrics(filtered_trades)
     
+    # Display KPIs horizontally
+    col1, col2, col3 = st.columns(3, gap='medium')
+    
+    # Add CSS to center the content
+    st.markdown("""
+        <style>
+        .metric-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    with col1:
+        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+        st.metric(label="Final Trade Profit", value=f"{final_trade_profit_rate}%")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+    with col2:
+        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+        st.metric(label="Win Trades", value=win_trades)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+    with col3:
+        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+        st.metric(label="Loss Trades", value=loss_trades)
+        st.markdown('</div>', unsafe_allow_html=True)
+
     row_height = [0.65, 0.15, 0.25] if show_macd else [0.8, 0.2]
     row = 3 if show_macd else 2
     
@@ -85,7 +120,7 @@ def create_figure(filtered_df, filtered_trades, show_macd=False):
     fig.update_yaxes(title_text="Profit/Loss", row=3, col=1)
     fig.update_layout(xaxis_rangeslider_visible=False, autosize=False, showlegend=False, height=800, width=1200)
 
-    return fig, win_trades, loss_trades, final_trade_profit
+    return fig
 
 def static_analysis_page():
     st.title("Stock Analysis Dashboard")
@@ -101,15 +136,9 @@ def static_analysis_page():
     # Add a checkbox to toggle the MACD plot
     show_macd = st.sidebar.checkbox("Show MACD", value=False)
     
-    fig, final_trade_profit, win_trades, loss_trades = create_figure(filtered_df, filtered_trades, show_macd)
+    fig = create_figure(filtered_df, filtered_trades, show_macd)
 
     st.plotly_chart(fig, use_container_width=True)
-    
-    # Display KPIs horizontally
-    col1, col2, col3 = st.columns(3)
-    col1.metric(label="Final Trade Profit", value=f"${final_trade_profit:.2f}")
-    col2.metric(label="Win Trades", value=win_trades)
-    col3.metric(label="Loss Trades", value=loss_trades)
 
 def initialize_mongo_client(mongo_uri=MONGO_URI, db_name=STREAMING_DB_NAME):
     client = pymongo.MongoClient(mongo_uri)
@@ -122,19 +151,21 @@ def get_current_date():
         current_date -= pd.Timedelta(days=current_date.weekday() - 4)
     elif current_date.weekday() == 0 and pd.to_datetime('today').hour < 9:  # Monday before 9:30
         current_date -= pd.Timedelta(days=3)
-    elif pd.to_datetime('today').hour < 9:  # Weekday before 9:30
+    elif pd.to_datetime('today').hour < 7:  # Weekday before 9:30
         current_date -= pd.Timedelta(days=1)
-    return current_date.replace(hour=9, minute=30).strftime('%Y-%m-%d %H:%M')
+    return current_date.replace(hour=7, minute=30).strftime('%Y-%m-%d %H:%M')
 
 def fetch_data(db, collection_name, symbol, current_date):
     return db[collection_name].find({"symbol": symbol, "datetime": {"$gte": pd.to_datetime(current_date)}})
 
-def fetch_alerts(db, collection_name, symbol, interval, current_date, alert_type):
-    query = {"symbol": symbol, "interval": interval, "datetime": {"$gte": pd.to_datetime(current_date)}, "alert_type": {"$in": alert_type}}
-    
+def fetch_alerts(db, collection_name, symbol, interval, current_date, alert_type=None):
+    if alert_type:
+        query = {"symbol": symbol, "datetime": {"$gte": pd.to_datetime(current_date)}, "alert_type": {"$in": alert_type}}
+    else:
+        query = {"symbol": symbol, "datetime": {"$gte": pd.to_datetime(current_date)}}
     return db[collection_name].find(query)
 
-def plot_candlestick_chart(filtered_df, filtered_live_alerts, stock_selector, interval):
+def plot_candlestick_chart(filtered_df, filtered_live_alerts, filtered_batch_alerts, stock_selector, interval):
     candlestick_chart = go.Figure(data=[go.Candlestick(
         x=filtered_df.index, 
         open=filtered_df['open'], 
@@ -168,7 +199,30 @@ def plot_candlestick_chart(filtered_df, filtered_live_alerts, stock_selector, in
                     showarrow=True,
                     arrowhead=1
                 )
+    # Add support lines
+    if 'support' in filtered_batch_alerts.columns:
+        for _, row in filtered_batch_alerts.iterrows():
+            end_date = row['datetime'] + pd.Timedelta(minutes=60)
+            row['datetime'] = row['datetime'].strftime('%Y-%m-%d %H:%M:%S')
+            end_date = end_date.strftime('%Y-%m-%d %H:%M:%S')
+            candlestick_chart.add_trace(go.Scatter(x=[row['datetime'], end_date], 
+                                    y=[row['support'], row['support']], 
+                                    mode='lines', 
+                                    line=dict(color='blue', width=1, dash='dash'), 
+                                    name='Support'))
 
+    # Add resistance lines
+    if 'resistance' in filtered_batch_alerts.columns:
+        for _, row in filtered_batch_alerts.iterrows():
+            end_date = row['datetime'] + pd.Timedelta(minutes=60)
+            row['datetime'] = row['datetime'].strftime('%Y-%m-%d %H:%M:%S')
+            end_date = end_date.strftime('%Y-%m-%d %H:%M:%S')
+            candlestick_chart.add_trace(go.Scatter(x=[row['datetime'], end_date], 
+                                    y=[row['resistance'], row['resistance']], 
+                                    mode='lines', 
+                                    line=dict(color='red', width=1, dash='dash'), 
+                                    name='Resistance'))
+            
     candlestick_chart.update_layout(xaxis_rangeslider_visible=False, showlegend=False, title=f'{stock_selector} Candlestick Chart ({interval})')
     return candlestick_chart
 
@@ -178,7 +232,7 @@ def live_alert_page():
     db = initialize_mongo_client()
     options = sorted(db[STREAMING_COLLECTIONS[0]].distinct("symbol"))
     current_date = get_current_date()
-
+    st.write(f"Current Date: {current_date}")
     st.title('Live Alert Tracking Dashboard')
     stock_selector = st.sidebar.selectbox('Select Stock', options=options, index=0)
     
@@ -194,16 +248,25 @@ def live_alert_page():
                                                 interval, 
                                                 current_date, 
                                                 alert_type=["bullish_engulfer","bearish_engulfer","bullish_382"])
-
+        
+        filtered_batch_alerts_query = fetch_alerts(db, 
+                                                'stock_batch_alert',
+                                                stock_selector, 
+                                                interval, 
+                                                current_date)
+        
         filtered_df = pd.DataFrame(list(filtered_query))
         filtered_live_alerts = pd.DataFrame(list(filtered_live_alerts_query))
-
+        filtered_batch_alerts = pd.DataFrame(list(filtered_batch_alerts_query))
         if not filtered_df.empty:
             filtered_df['datetime'] = pd.to_datetime(filtered_df['datetime'])
             filtered_df.set_index('datetime', inplace=True)
-            candlestick_chart = plot_candlestick_chart(filtered_df, filtered_live_alerts, stock_selector, interval)
+            candlestick_chart = plot_candlestick_chart(filtered_df, 
+                                                    filtered_live_alerts,
+                                                    filtered_batch_alerts,
+                                                    stock_selector, 
+                                                    interval)
             chart_placeholders[interval].plotly_chart(candlestick_chart)
-            st.dataframe(filtered_live_alerts)
         else:
             chart_placeholders[interval].write(f"No data available for {stock_selector} in {interval} interval")
             
