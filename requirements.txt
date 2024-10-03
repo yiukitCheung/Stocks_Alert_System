@@ -130,7 +130,7 @@ traitlets
 typing_extensions
 tzdata
 urllib3
-wcwidth13
+wcwidth
 webencodings
 websocket-client
 websockets
