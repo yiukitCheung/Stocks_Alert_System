@@ -173,9 +173,9 @@ class StockDataExtractor:
             
     def start_scheduled_datastream_consuming(self):
         
-        # Fetch data immediately for all intervals
-        for interval in ['5m', '30m', '60m']:
-            self.fetch_and_produce_datastream(interval)
+        # # Fetch data immediately for all intervals
+        # for interval in ['5m', '30m', '60m']:
+        #     self.fetch_and_produce_datastream(interval)
             
         trading = True
         if pd.to_datetime('now').hour < 14:
