@@ -7,7 +7,7 @@ from utils.alert_strategy import Alert
 from utils.trading_strategy import TradingStrategy
 from utils.features_engineering import add_features
 import time
-
+ 
 # Constants
 MONGO_URI = "mongodb+srv://yiukit:wai6d09wsS!@cluster0.hvjdi.mongodb.net/"
 DB_NAME = "historic_price"
