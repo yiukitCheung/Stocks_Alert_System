@@ -19,7 +19,8 @@ class kafka_config:
     def read_config():
         config = {}
         root_dir = os.path.dirname(os.path.abspath(__file__))
-        client_properties_path = os.path.join(root_dir, "..", "..", "..", "client.properties")
+        client_properties_path = os.path.join(root_dir,"client.properties")
+        print(client_properties_path)
         with open(client_properties_path) as fh:
             for line in fh:
                 line = line.strip()
@@ -49,7 +50,7 @@ class DataStreamProcess:
         # Initialize the Kafka consumer
         self.kafka_config = kafka_config.read_config()
         self.kafka_config["group.id"] = "my-consumer-group"
-        self.kafka_config["auto.offset.reset"] = ""
+        self.kafka_config["auto.offset.reset"] = "latest"
         self.consumer = Consumer(self.kafka_config)
         
         # Set the topic name 
@@ -283,7 +284,7 @@ class DataStreamProcess:
     def fetch_and_transform_datastream(self):
         self.consumer.subscribe(topics=self.datastream_topics)
         while True:
-            msg = self.consumer.poll(0.1)
+            msg = self.consumer.poll(0.01)
             if msg is None:
                 logging.info("No new messages")
                 continue

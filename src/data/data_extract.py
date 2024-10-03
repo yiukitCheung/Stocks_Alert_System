@@ -4,7 +4,7 @@ import json, schedule, time
 import pandas as pd
 from pymongo import MongoClient, DESCENDING
 import traceback, logging
-
+import os
 
 # Configure logging
 logging.basicConfig(
