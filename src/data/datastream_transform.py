@@ -6,6 +6,7 @@ from utils.batch_alert import trend_pattern
 import logging
 from pymongo import MongoClient, DESCENDING
 from datetime import datetime, timezone
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -13,18 +14,19 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Set the logging format
     handlers=[logging.StreamHandler()]  # Add a stream handler to print to console
 )
-
 class kafka_config:
+    @staticmethod
     def read_config():
         config = {}
-        with open("client.properties") as fh:
+        root_dir = os.path.dirname(os.path.abspath(__file__))
+        client_properties_path = os.path.join(root_dir, "..", "..", "..", "client.properties")
+        with open(client_properties_path) as fh:
             for line in fh:
                 line = line.strip()
                 if len(line) != 0 and line[0] != "#":
                     parameter, value = line.strip().split('=', 1)
                     config[parameter] = value.strip()
         return config
-    
     
 class DataStreamProcess:
     def __init__(self, lookback, 
