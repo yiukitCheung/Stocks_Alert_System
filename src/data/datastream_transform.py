@@ -41,13 +41,13 @@ class DataStreamProcess:
         self.pointer_b = 1
         
         # Initialize the MongoDB client
-        self.client = MongoClient(mongo_uri)
+        self.client = MongoClient(mongo_uri, maxPoolSize=50, minPoolSize=1)
         self.db = self.client[db_name]
         
         # Initialize the Kafka consumer
         self.kafka_config = kafka_config.read_config()
         self.kafka_config["group.id"] = "my-consumer-group"
-        self.kafka_config["auto.offset.reset"] = "earliest"
+        self.kafka_config["auto.offset.reset"] = ""
         self.consumer = Consumer(self.kafka_config)
         
         # Set the topic name 
@@ -291,8 +291,8 @@ class DataStreamProcess:
                 continue
             
             # Extract the key and value from the ConsumerRecord
-            symbol = deseralize_msg.values()['symbol']
-            value = deseralize_msg.values()
+            symbol = deseralize_msg['symbol']
+            value = deseralize_msg
             topic = msg.topic()
             interval = topic.split('_')[0]
             
