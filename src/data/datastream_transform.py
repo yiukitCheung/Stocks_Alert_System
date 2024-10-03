@@ -28,10 +28,21 @@ class kafka_config:
                     parameter, value = line.strip().split('=', 1)
                     config[parameter] = value.strip()
         return config
-    
+
+class mongo_config:
+    @staticmethod
+    def read_config():
+        config = {}
+        with open('mongo.properties') as fh:
+            for line in fh:
+                line = line.strip()
+                if len(line) != 0 and line[0] != "#":
+                    parameter, value = line.strip().split('=', 1)
+                    config[parameter] = value.strip()
+        return config
 class DataStreamProcess:
     def __init__(self, lookback, 
-                mongo_uri="mongodb://localhost:27017/",
+                mongo_uri=mongo_config.read_config()['mongo_uri'],
                 db_name="streaming_data"):
         
         # Initialize the batch

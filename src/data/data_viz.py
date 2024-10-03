@@ -7,9 +7,19 @@ from utils.alert_strategy import Alert
 from utils.trading_strategy import TradingStrategy
 from utils.features_engineering import add_features
 import time
-
+class mongo_config:
+    @staticmethod
+    def read_config():
+        config = {}
+        with open('mongo.properties') as fh:
+            for line in fh:
+                line = line.strip()
+                if len(line) != 0 and line[0] != "#":
+                    parameter, value = line.strip().split('=', 1)
+                    config[parameter] = value.strip()
+        return config
 # Constants
-MONGO_URI = "mongodb://localhost:27017/"
+MONGO_URI = mongo_config.read_config()['mongo_uri']
 DB_NAME = "historic_price"
 COLLECTION_NAME = "daily_stock_price"
 STREAMING_DB_NAME = "streaming_data"

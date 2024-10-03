@@ -4,12 +4,23 @@ import pandas as pd
 import logging
 from utils.alert_strategy import Alert
 from utils.features_engineering import add_features
-
+class mongo_config:
+    @staticmethod
+    def read_config():
+        config = {}
+        with open('mongo.properties') as fh:
+            for line in fh:
+                line = line.strip()
+                if len(line) != 0 and line[0] != "#":
+                    parameter, value = line.strip().split('=', 1)
+                    config[parameter] = value.strip()
+        return config
+    
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class DataPreprocess:
-    def __init__(self, mongo_uri="mongodb://localhost:27017/", 
+    def __init__(self, mongo_uri=mongo_config.read_config()['mongo_uri'], 
                 db_name="historic_price", 
                 price_collection_name=["daily_stock_price", "weekly_stock_price"],
                 tech_collection_name="processed_stock_data"):
