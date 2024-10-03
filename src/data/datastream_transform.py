@@ -31,7 +31,7 @@ class kafka_config:
     
 class DataStreamProcess:
     def __init__(self, lookback, 
-                mongo_uri="mongodb+srv://yiukit:wai6d09wsS!@cluster0.hvjdi.mongodb.net/",
+                mongo_uri="mongodb://localhost:27017/",
                 db_name="streaming_data"):
         
         # Initialize the batch
@@ -284,7 +284,7 @@ class DataStreamProcess:
     def fetch_and_transform_datastream(self):
         self.consumer.subscribe(topics=self.datastream_topics)
         while True:
-            msg = self.consumer.poll(0.01)
+            msg = self.consumer.poll(0.1)
             if msg is None:
                 logging.info("No new messages")
                 continue

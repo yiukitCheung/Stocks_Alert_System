@@ -17,9 +17,8 @@ class kafka_config:
     @staticmethod
     def read_config():
         config = {}
-        root_dir = os.path.dirname(os.path.abspath(__file__))
-        client_properties_path = os.path.join(root_dir, "..", "..", "..", "client.properties")
-        with open(client_properties_path) as fh:
+
+        with open("client.properties") as fh:
             for line in fh:
                 line = line.strip()
                 if len(line) != 0 and line[0] != "#":
@@ -29,7 +28,7 @@ class kafka_config:
     
 class StockDataIngestor:
     def __init__(self,schedule_time,
-                mongo_uri="mongodb+srv://yiukit:wai6d09wsS!@cluster0.hvjdi.mongodb.net/",
+                mongo_uri="mongodb://localhost:27017/",
                 db_name="historic_price", 
                 daily_collection_name="daily_stock_price",
                 weekly_collection_name="weekly_stock_price"):
@@ -63,7 +62,7 @@ class StockDataIngestor:
         batch_size = 5000
         try:
             while True:
-                msg = self.consumer.poll(1)
+                msg = self.consumer.poll(0.1)
                 if msg is None:
                     logging.info("No new messages")
                     continue

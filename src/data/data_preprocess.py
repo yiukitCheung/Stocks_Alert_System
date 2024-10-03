@@ -9,7 +9,7 @@ from utils.features_engineering import add_features
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class DataPreprocess:
-    def __init__(self, mongo_uri="mongodb+srv://yiukit:wai6d09wsS!@cluster0.hvjdi.mongodb.net/", 
+    def __init__(self, mongo_uri="mongodb://localhost:27017/", 
                 db_name="historic_price", 
                 price_collection_name=["daily_stock_price", "weekly_stock_price"],
                 tech_collection_name="processed_stock_data"):

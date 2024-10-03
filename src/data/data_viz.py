@@ -9,7 +9,7 @@ from utils.features_engineering import add_features
 import time
 
 # Constants
-MONGO_URI = "mongodb+srv://yiukit:wai6d09wsS!@cluster0.hvjdi.mongodb.net/"
+MONGO_URI = "mongodb://localhost:27017/"
 DB_NAME = "historic_price"
 COLLECTION_NAME = "daily_stock_price"
 STREAMING_DB_NAME = "streaming_data"

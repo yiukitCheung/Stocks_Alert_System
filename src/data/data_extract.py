@@ -17,9 +17,7 @@ class kafka_config:
     @staticmethod
     def read_config():
         config = {}
-        root_dir = os.path.dirname(os.path.abspath(__file__))
-        client_properties_path = os.path.join(root_dir, "..", "..", "..", "client.properties")
-        with open(client_properties_path) as fh:
+        with open('client.properties') as fh:
             for line in fh:
                 line = line.strip()
                 if len(line) != 0 and line[0] != "#":
@@ -31,7 +29,7 @@ class StockDataExtractor:
     
     def __init__(self,symbols,
                 mongo_uri="mongodb://localhost:27017/",
-                db_name="local", 
+                db_name="historic_data", 
                 daily_collection_name="daily_stock_price",
                 weekly_collection_name="weekly_stock_price"
                 ):
