@@ -1,12 +1,29 @@
-from kafka import KafkaProducer
+from confluent_kafka import Producer, Consumer
 import yfinance as yf
 import json, schedule, time
 import pandas as pd
 from pymongo import MongoClient, DESCENDING
-import traceback, logging, datetime
+import traceback, logging
 
-logging.basicConfig(level=logging.INFO)
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,  # Set the logging level to INFO
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Set the logging format
+    handlers=[logging.StreamHandler()]  # Add a stream handler to print to console
+)
+
+class kafka_config:
+    def read_config():
+        config = {}
+        with open("client.properties") as fh:
+            for line in fh:
+                line = line.strip()
+                if len(line) != 0 and line[0] != "#":
+                    parameter, value = line.strip().split('=', 1)
+                    config[parameter] = value.strip()
+        return config
+    
 class StockDataExtractor:
     
     def __init__(self,symbols,
@@ -28,8 +45,8 @@ class StockDataExtractor:
         self.weekly_collection_name = self.weekly_topic_name = weekly_collection_name
         
         # Initialize the Kafka producer
-        self.producer = KafkaProducer(bootstrap_servers='localhost:9092',
-                                    value_serializer=lambda v: json.dumps(v).encode('utf-8'))
+        self.kafka_config = kafka_config.read_config()
+        self.producer = Producer(self.kafka_config)
         
         # Create Time Series Collection if it does not exist
         self.create_collection_if_not_exists(self.daily_collection_name)
@@ -44,7 +61,7 @@ class StockDataExtractor:
                                 self.weekly_collection_name: (self.weekly_collection, '1wk')}
         
         print(f"Connected to MongoDB: {mongo_uri}")
-    
+        
     def create_collection_if_not_exists(self, collection_name):
         if collection_name not in self.db.list_collection_names():
             self.db.create_collection(
@@ -97,8 +114,8 @@ class StockDataExtractor:
                                 'close': record['Close'],
                                 'volume': record['Volume']
                             }
-                            
-                            self.producer.send(topic=collection_name, value=stock_record)
+                            serilized_record = json.dumps(stock_record)
+                            self.producer.produce(topic=collection_name, value=serilized_record)
                             
             
                         # Flush the producer after all messages have been sent
@@ -132,10 +149,12 @@ class StockDataExtractor:
                             'volume': record['Volume']
                         }
                         
+                        serialized_record = json.dumps(stock_record)
+                        serialized_key = symbol.encode('utf-8')
                         # Send data to the respective topic
-                        self.producer.send(topic=f'{interval}_stock_datastream', 
-                                        key=symbol.encode('utf-8'),
-                                        value=stock_record)
+                        self.producer.produce(topic=f'{interval}_stock_datastream', 
+                                                key=serialized_key,
+                                                value=serialized_record)
                     # Update the last fetch time
                     self.last_fetch[symbol][interval] = pd.to_datetime('now')
                     # Flush the producer after all messages have been sent
@@ -182,7 +201,7 @@ class StockDataExtractor:
             # Consume and Ingest daily and weekly stock data
             self.fetch_and_produce_stock_data()
             logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
-        
+    
             
 # Usage example
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 import streamlit
-from kafka import KafkaConsumer,KafkaProducer
+from confluent_kafka import Consumer, KafkaException
 import json, pandas as pd
 from utils.real_time_alert import CandlePattern
 from utils.batch_alert import trend_pattern
@@ -14,8 +14,22 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]  # Add a stream handler to print to console
 )
 
+class kafka_config:
+    def read_config():
+        config = {}
+        with open("client.properties") as fh:
+            for line in fh:
+                line = line.strip()
+                if len(line) != 0 and line[0] != "#":
+                    parameter, value = line.strip().split('=', 1)
+                    config[parameter] = value.strip()
+        return config
+    
+    
 class DataStreamProcess:
-    def __init__(self, lookback, mongo_uri="mongodb://localhost:27017/", db_name="streaming_data"):
+    def __init__(self, lookback, 
+                mongo_uri="mongodb+srv://yiukit:wai6d09wsS!@cluster0.hvjdi.mongodb.net/",
+                db_name="streaming_data"):
         
         # Initialize the batch
         self.batch = {}
@@ -31,9 +45,10 @@ class DataStreamProcess:
         self.db = self.client[db_name]
         
         # Initialize the Kafka consumer
-        self.consumer = KafkaConsumer(bootstrap_servers='localhost:9092',
-                                    value_deserializer=lambda v: json.loads(v.decode('utf-8')),
-                                    key_deserializer=lambda v: v.decode('utf-8'))
+        self.kafka_config = kafka_config.read_config()
+        self.kafka_config["group.id"] = "my-consumer-group"
+        self.kafka_config["auto.offset.reset"] = "earliest"
+        self.consumer = Consumer(self.kafka_config)
         
         # Set the topic name 
         self.stock_live_alert_topic = 'stock_live_alert'
@@ -264,26 +279,29 @@ class DataStreamProcess:
             break
         
     def fetch_and_transform_datastream(self):
-        self.consumer.subscribe(topics=set(self.datastream_topics))
+        self.consumer.subscribe(topics=self.datastream_topics)
         while True:
-            messages = self.consumer.poll(timeout_ms=1000)
-            if not messages:
+            msg = self.consumer.poll(0.1)
+            if msg is None:
                 logging.info("No new messages")
                 continue
-            for topic_partition, consumer_records in messages.items():
-                for record in consumer_records:
-                    # Extract the key and value from the ConsumerRecord
-                    symbol = record.key
-                    value = record.value
-                    topic = topic_partition.topic
-                    interval = topic.split('_')[0]
-                    
-                    # Store the data in MongoDB
-                    self.store_datastream(symbol, value, topic)
-                    # Process the record
-                    self.streaming_process(value, interval)
-                    self.batch_process(symbol=symbol, records=value, interval=interval)
-                
+            deseralize_msg = json.loads(msg.value().decode('utf-8'))
+            if msg.error():
+                logging.error(f"Consumer error: {msg.error()}")
+                continue
+            
+            # Extract the key and value from the ConsumerRecord
+            symbol = deseralize_msg.values()['symbol']
+            value = deseralize_msg.values()
+            topic = msg.topic()
+            interval = topic.split('_')[0]
+            
+            # Store the data in MongoDB
+            self.store_datastream(symbol, value, topic)
+            # Process the record
+            self.streaming_process(value, interval)
+            self.batch_process(symbol=symbol, records=value, interval=interval)
+            
 if __name__ == '__main__':
     datastream = DataStreamProcess(lookback=15)
     datastream.fetch_and_transform_datastream()

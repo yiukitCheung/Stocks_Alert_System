@@ -9,10 +9,10 @@ from utils.features_engineering import add_features
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class DataPreprocess:
-    def __init__(self, mongo_uri="mongodb://localhost:27017/", 
-                db_name="local", 
+    def __init__(self, mongo_uri="mongodb+srv://yiukit:wai6d09wsS!@cluster0.hvjdi.mongodb.net/", 
+                db_name="historic_price", 
                 price_collection_name=["daily_stock_price", "weekly_stock_price"],
-                tech_collection_name="technical_stock_data"):
+                tech_collection_name="processed_stock_data"):
     
         # Initialize the MongoDB client
         self.client = pymongo.MongoClient(mongo_uri)
@@ -24,6 +24,9 @@ class DataPreprocess:
         
         # Set the current date
         self.current_date = pd.to_datetime('today').strftime('%Y-%m-%d')
+        
+        # Initialize the batch list
+        self.batch = []
         
         # Ensure technical data collection is time-series
         if self.tech_collection_name not in self.db.list_collection_names():
@@ -42,6 +45,7 @@ class DataPreprocess:
     def fetch_data(self, symbol, collection):
         query = self.db[collection].find({"symbol": symbol})
         df = pd.DataFrame(list(query))        
+        df = df.sort_values(by='date')
         return df
     
     def process_data(self, df):
@@ -59,9 +63,13 @@ class DataPreprocess:
             record["timestamp"] = pd.to_datetime(record["date"]).to_pydatetime()  # Convert to Python datetime
             if isinstance(record["timestamp"], pd.Timestamp):
                 record["timestamp"] = record["timestamp"].to_pydatetime()
-            # Insert the record into the collection
-            self.db[self.tech_collection_name].insert_one(record)
-            logging.info(f"Inserted record for {symbol} at {record['timestamp']} with interval {interval}")
+            # Add the record to the batch list
+            self.batch.append(record)
+            # If the batch size is greater than the DataFrame size, insert the records into the collection
+            if len(self.batch) >= len(df):
+                self.db[self.tech_collection_name].insert_many(self.batch)
+                self.batch = []
+                logging.info(f"Inserted {len(self.batch)} records into {self.tech_collection_name} collection")
 
     def run(self):
         for collection in self.price_collection_name:
@@ -74,7 +82,7 @@ class DataPreprocess:
                 stock_df = self.fetch_data(symbol, collection)
                 processed_df = self.process_data(stock_df)
                 logging.info(f"Processing symbol {symbol} completed!")
-                
+                print(processed_df)
                 # Check latest record in the technical collection
                 latest_record = self.db[self.tech_collection_name]\
                     .find_one({"symbol": symbol, "interval": collection.split("_")[0]}, 
@@ -90,12 +98,11 @@ class DataPreprocess:
                 # If the symbol does not exist in the technical collection
                 else:
                     new_records = processed_df
-                
                 if not new_records.empty:
                     self.insert_technical_data(symbol, new_records, collection.split("_")[0])
                     added_technical += 1
                     logging.info(f"{(added_technical/total_symbols) * 100:.2f}% Technical data added successfully for {symbol}!")
-
+                        
 # Example usage
 if __name__ == "__main__":
     dp = DataPreprocess()

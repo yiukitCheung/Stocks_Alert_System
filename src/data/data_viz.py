@@ -9,8 +9,8 @@ from utils.features_engineering import add_features
 import time
 
 # Constants
-MONGO_URI = "mongodb://localhost:27017/"
-DB_NAME = "local"
+MONGO_URI = "mongodb+srv://yiukit:wai6d09wsS!@cluster0.hvjdi.mongodb.net/"
+DB_NAME = "historic_price"
 COLLECTION_NAME = "daily_stock_price"
 STREAMING_DB_NAME = "streaming_data"
 STREAMING_COLLECTIONS = ['5m_stock_datastream', '30m_stock_datastream', '60m_stock_datastream']
@@ -130,6 +130,7 @@ def static_analysis_page():
     stock_selector = st.sidebar.selectbox('Select Stock', options=sorted(collection.distinct("symbol")), index=0)
     
     filtered_df = fetch_stock_data(collection, stock_selector)
+    filtered_df = filtered_df.sort_values(by=['date'])
     filtered_df = add_technical_features(filtered_df)
     filtered_trades = execute_trades(filtered_df)
     
