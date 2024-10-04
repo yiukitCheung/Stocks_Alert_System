@@ -4,24 +4,13 @@ import pandas as pd
 import logging
 from utils.alert_strategy import Alert
 from utils.features_engineering import add_features
-class mongo_config:
-    @staticmethod
-    def read_config():
-        config = {}
-        with open('mongo.properties') as fh:
-            for line in fh:
-                line = line.strip()
-                if len(line) != 0 and line[0] != "#":
-                    parameter, value = line.strip().split('=', 1)
-                    config[parameter] = value.strip()
-        return config
-    
+import configparser
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class DataPreprocess:
-    def __init__(self, mongo_uri=mongo_config.read_config()['mongo_uri'], 
-                db_name="historic_price", 
+    def __init__(self, mongo_uri, 
+                db_name="historic_data", 
                 price_collection_name=["daily_stock_price", "weekly_stock_price"],
                 tech_collection_name="processed_stock_data"):
     
@@ -51,7 +40,6 @@ class DataPreprocess:
             )
         
         logging.info(f"{self.tech_collection_name} collection exists")
-        logging.info(f"Connected to MongoDB: {mongo_uri}")
         
     def fetch_data(self, symbol, collection):
         query = self.db[collection].find({"symbol": symbol})
@@ -78,9 +66,9 @@ class DataPreprocess:
             self.batch.append(record)
             # If the batch size is greater than the DataFrame size, insert the records into the collection
             if len(self.batch) >= len(df):
+                logging.info(f"Inserted {len(self.batch)} records into {self.tech_collection_name} collection")
                 self.db[self.tech_collection_name].insert_many(self.batch)
                 self.batch = []
-                logging.info(f"Inserted {len(self.batch)} records into {self.tech_collection_name} collection")
 
     def run(self):
         for collection in self.price_collection_name:
@@ -93,7 +81,6 @@ class DataPreprocess:
                 stock_df = self.fetch_data(symbol, collection)
                 processed_df = self.process_data(stock_df)
                 logging.info(f"Processing symbol {symbol} completed!")
-                print(processed_df)
                 # Check latest record in the technical collection
                 latest_record = self.db[self.tech_collection_name]\
                     .find_one({"symbol": symbol, "interval": collection.split("_")[0]}, 
@@ -113,8 +100,13 @@ class DataPreprocess:
                     self.insert_technical_data(symbol, new_records, collection.split("_")[0])
                     added_technical += 1
                     logging.info(f"{(added_technical/total_symbols) * 100:.2f}% Technical data added successfully for {symbol}!")
-                        
+
+def read_mongo_config(file_path):
+    config = configparser.ConfigParser()
+    config.read(file_path)
+    return config['DEFAULT']['mongodb_uri']
+
 # Example usage
 if __name__ == "__main__":
-    dp = DataPreprocess()
+    dp = DataPreprocess(mongo_uri=read_mongo_config('mongo.properties'))
     dp.run()

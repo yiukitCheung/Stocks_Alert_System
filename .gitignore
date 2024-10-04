@@ -1,2 +1,3 @@
 secret.toml
 src/data/client.properties
+src/data/mongo.properties

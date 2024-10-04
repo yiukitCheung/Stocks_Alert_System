@@ -25,22 +25,11 @@ class kafka_config:
                     parameter, value = line.strip().split('=', 1)
                     config[parameter] = value.strip()
         return config
-class mongo_config:
-    @staticmethod
-    def read_config():
-        config = {}
-        with open('mongo.properties') as fh:
-            for line in fh:
-                line = line.strip()
-                if len(line) != 0 and line[0] != "#":
-                    parameter, value = line.strip().split('=', 1)
-                    config[parameter] = value.strip()
-        return config
-    
+
 class StockDataIngestor:
     def __init__(self,schedule_time,
-                mongo_uri=mongo_config.read_config()['mongo_uri'],
-                db_name="historic_price", 
+                mongo_uri,
+                db_name="historic_data", 
                 daily_collection_name="daily_stock_price",
                 weekly_collection_name="weekly_stock_price"):
 
@@ -98,7 +87,7 @@ class StockDataIngestor:
                 batch.extend(records)
                 if len(batch) >= batch_size:
                     self.insert_data(collection_name, batch)
-                    logging.info(f"Inserted {len(batch)} records into {collection_name}")
+                    logging.info(f"Inserted {len(batch)} records into {collection_name, self.db}")
                     batch = []
                         
         except KeyboardInterrupt:
@@ -121,7 +110,13 @@ class StockDataIngestor:
                 time.sleep(1)
         else:
             self.consume_kafka()
+def read_mongo_config(file_path):
+    import configparser
+    config = configparser.ConfigParser()
+    print(config.read(file_path))
+    
+    return config['DEFAULT']['mongodb_uri'] 
 
 if __name__ == "__main__":
-    ingestor = StockDataIngestor(schedule_time=None)
+    ingestor = StockDataIngestor(schedule_time=None, mongo_uri=read_mongo_config("mongo.properties"))
     ingestor.schedule_data_data_consumption()

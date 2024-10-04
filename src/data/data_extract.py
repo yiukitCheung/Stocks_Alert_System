@@ -24,27 +24,13 @@ class kafka_config:
                     parameter, value = line.strip().split('=', 1)
                     config[parameter] = value.strip()
         return config
-
-class mongo_config:
-    @staticmethod
-    def read_config():
-        config = {}
-        with open('mongo.properties') as fh:
-            for line in fh:
-                line = line.strip()
-                if len(line) != 0 and line[0] != "#":
-                    parameter, value = line.strip().split('=', 1)
-                    config[parameter] = value.strip()
-        return config
     
 class StockDataExtractor:
     
-    def __init__(self,symbols,
-                mongo_uri=mongo_config.read_config()['mongo_uri'],
+    def __init__(self,symbols,mongo_url,
                 db_name="historic_data", 
                 daily_collection_name="daily_stock_price",
-                weekly_collection_name="weekly_stock_price"
-                ):
+                weekly_collection_name="weekly_stock_price"):
 
         # Set the class variables
         self.symbols = symbols
@@ -52,7 +38,7 @@ class StockDataExtractor:
         self.last_fetch = {symbol: {interval: None for interval in ['5m', '30m', '60m']} for symbol in self.symbols}
         
         # Initialize the MongoDB client
-        self.client = MongoClient(mongo_uri)
+        self.client = MongoClient(mongo_url)
         self.db = self.client[db_name]
         self.daily_collection_name = self.daily_topic_name = daily_collection_name
         self.weekly_collection_name = self.weekly_topic_name = weekly_collection_name
@@ -71,9 +57,7 @@ class StockDataExtractor:
         
         # Collection to be stored in MongoDB
         self.collection_dict = {self.daily_collection_name: (self.daily_collection, '1d'), 
-                                self.weekly_collection_name: (self.weekly_collection, '1wk')}
-        
-        print(f"Connected to MongoDB: {mongo_uri}")
+                                self.weekly_collection_name: (self.weekly_collection, '1wk')}       
         
     def create_collection_if_not_exists(self, collection_name):
         if collection_name not in self.db.list_collection_names():
@@ -186,9 +170,9 @@ class StockDataExtractor:
             
     def start_scheduled_datastream_consuming(self):
         
-        # # Fetch data immediately for all intervals
-        # for interval in ['5m', '30m', '60m']:
-        #     self.fetch_and_produce_datastream(interval)
+        # Fetch data immediately for all intervals
+        for interval in ['5m', '30m', '60m']:
+            self.fetch_and_produce_datastream(interval)
             
         trading = True
         if pd.to_datetime('now').hour < 14:
@@ -215,10 +199,15 @@ class StockDataExtractor:
             self.fetch_and_produce_stock_data()
             logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
     
-            
-# Usage example
-if __name__ == "__main__":
+def read_mongo_config(file_path):
+    import configparser
+    config = configparser.ConfigParser()
+    print(config.read(file_path))
     
+    return config['DEFAULT']['mongodb_uri']     
+
+# Usage example
+if __name__ == "__main__":    
     stock_symbols = [
         "NVDA", "TSLA", "META", "GOOGL", "PLTR", "GOOG", 
         "FSLR", "BSX", "GOLD", "EA", "INTU", "SHOP", "ADI", "RMD", 
@@ -227,5 +216,8 @@ if __name__ == "__main__":
         "GRMN", "CP", "TCOM", "ALC", "TW", "EQR", "FAST", "ERIE",
         "TRI", "GIB", "CHT"]
     
-    extractor = StockDataExtractor(symbols=stock_symbols)
+    extractor = StockDataExtractor(symbols=stock_symbols,
+                                mongo_url=read_mongo_config('mongo.properties'))
     extractor.start_scheduled_datastream_consuming()
+
+    
