@@ -7,12 +7,12 @@ from utils.alert_strategy import Alert
 from utils.trading_strategy import TradingStrategy
 from utils.features_engineering import add_features
 import time
+import configparser
+
 def read_mongo_config(file_path):
-    import configparser
     config = configparser.ConfigParser()
-    print(config.read(file_path))
-    
-    return config['DEFAULT']['mongodb_uri'] 
+    config.read(file_path)
+    return config['DEFAULT']['mongodb_uri']
 # Constants
 MONGO_URI = read_mongo_config('mongo.properties')
 DB_NAME = "historic_data"
