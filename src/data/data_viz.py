@@ -14,7 +14,8 @@ def read_mongo_config(file_path):
     config.read(file_path)
     return config['DEFAULT']['mongodb_uri']
 # Constants
-MONGO_URI = read_mongo_config('mongo.properties')
+
+MONGO_URI =  pymongo.MongoClient(**st.secrets["mongo"])
 DB_NAME = "historic_data"
 COLLECTION_NAME = "daily_stock_price"
 STREAMING_DB_NAME = "streaming_data"
