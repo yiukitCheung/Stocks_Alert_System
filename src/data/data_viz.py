@@ -7,27 +7,23 @@ from utils.alert_strategy import Alert
 from utils.trading_strategy import TradingStrategy
 from utils.features_engineering import add_features
 import time
-import configparser
 
-def read_mongo_config(file_path):
-    config = configparser.ConfigParser()
-    config.read(file_path)
-    return config['DEFAULT']['mongodb_uri']
 # Constants
-
 MONGO_URI =  pymongo.MongoClient(**st.secrets["mongo"])
 DB_NAME = "historic_data"
 COLLECTION_NAME = "daily_stock_price"
 STREAMING_DB_NAME = "streaming_data"
 STREAMING_COLLECTIONS = ['5m_stock_datastream', '30m_stock_datastream', '60m_stock_datastream']
 
+@st.cache_resource
+def init_connection():
+    return pymongo.MongoClient(**st.secrets["mongo"])
 
-def connect_to_mongo(db_uri=MONGO_URI, db_name=DB_NAME, collection_name=COLLECTION_NAME):
-    client = pymongo.MongoClient(db_uri)
+def connect_to_mongo(db_name=DB_NAME, collection_name=COLLECTION_NAME):
+    client = init_connection
     db = client[db_name]
     collection = db[collection_name]
     return collection
-
 
 def fetch_stock_data(collection, stock_symbol):
     filtered_query = collection.find({"symbol": stock_symbol}, {"_id": 0})
@@ -147,10 +143,6 @@ def static_analysis_page():
 
     st.plotly_chart(fig, use_container_width=True)
 
-def initialize_mongo_client(mongo_uri=MONGO_URI, db_name=STREAMING_DB_NAME):
-    client = pymongo.MongoClient(mongo_uri)
-    return client[db_name]
-
 @st.cache_data
 def get_current_date():
     current_date = pd.to_datetime('today').normalize()
@@ -236,7 +228,7 @@ def plot_candlestick_chart(filtered_df, filtered_live_alerts, filtered_batch_ale
 def live_alert_page():
     st.sidebar.header("Stock Selector")
 
-    db = initialize_mongo_client()
+    db = init_connection()[STREAMING_DB_NAME]
     options = sorted(db[STREAMING_COLLECTIONS[0]].distinct("symbol"))
     current_date = get_current_date()
     st.write(f"Current Date: {current_date}")
