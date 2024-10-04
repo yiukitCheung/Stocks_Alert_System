@@ -1,3 +1,4 @@
-.streamlit/secrets.toml
+src/__pycache__/
+.streamlit/secret.toml
 src/data/client.properties
 src/data/mongo.properties
