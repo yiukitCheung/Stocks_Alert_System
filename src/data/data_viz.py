@@ -6,34 +6,32 @@ import streamlit as st
 from utils.alert_strategy import Alert
 from utils.trading_strategy import TradingStrategy
 from utils.features_engineering import add_features
-import time
+import time, os, sys
 
-# Constants
-MONGO_URI =  pymongo.MongoClient(**st.secrets["mongo"])
-DB_NAME = "historic_data"
-COLLECTION_NAME = "daily_stock_price"
-STREAMING_DB_NAME = "streaming_data"
-STREAMING_COLLECTIONS = ['5m_stock_datastream', '30m_stock_datastream', '60m_stock_datastream']
+# Add project root to sys.path dynamically
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+from config.mongdb_config import load_mongo_config
 
-@st.cache_resource
-def init_connection():
-    return pymongo.MongoClient(**st.secrets["mongo"])
-
-def connect_to_mongo(db_name=DB_NAME, collection_name=COLLECTION_NAME):
-    client = init_connection
-    db = client[db_name]
-    collection = db[collection_name]
-    return collection
+# MongoDB Configuration
+mongodb_config = load_mongo_config()
+MONGO_URI = mongodb_config['url']
+DB_NAME = mongodb_config['db_name']
+COLLECTION_NAME = f'{mongodb_config["warehouse_interval"][0]}_data'
+STREAMING_COLLECTIONS = [f'{interval}_stock_datastream' for interval in mongodb_config['streaming_interval']]
+LIVE_ALERT_COLLECTION = mongodb_config['alert_collection_name']['live']
+BATCH_ALERT_COLLECTION = mongodb_config['alert_collection_name']['batch']
+DESIRED_STREAMING_INTERVAL = mongodb_config['streaming_interval']
+def connect_to_mongo(db_uri=MONGO_URI, db_name=DB_NAME, collection_name=COLLECTION_NAME):
+    client = pymongo.MongoClient(db_uri)
+    return client[db_name][collection_name]
 
 def fetch_stock_data(collection, stock_symbol):
-    filtered_query = collection.find({"symbol": stock_symbol}, {"_id": 0})
-    return pd.DataFrame(list(filtered_query))
+    return pd.DataFrame(list(collection.find({"symbol": stock_symbol}, {"_id": 0})))
 
 @st.cache_data
 def add_technical_features(filtered_df):
     filtered_df = add_features(filtered_df).apply()
-    filtered_df = Alert(filtered_df).add_alert()
-    return filtered_df
+    return Alert(filtered_df).add_alert()
 
 @st.cache_data
 def execute_trades(filtered_df):
@@ -41,20 +39,17 @@ def execute_trades(filtered_df):
     trades_history.execute_trades()
     return trades_history.get_trades()
 
-@ st.cache_data
+@st.cache_data
 def compute_metrics(filtered_trades):
     win_trades = len(filtered_trades[filtered_trades['profit'] > 0])
     loss_trades = len(filtered_trades[filtered_trades['profit'] <= 0])
     final_trade_profit_rate = (round(filtered_trades['total_asset'].iloc[-1]) - 10000) / 100
     return [win_trades, loss_trades, final_trade_profit_rate]
 
-def create_figure(filtered_df,filtered_trades, show_macd=False):
+def create_figure(filtered_df, filtered_trades, show_macd=False):
     win_trades, loss_trades, final_trade_profit_rate = compute_metrics(filtered_trades)
     
-    # Display KPIs horizontally
     col1, col2, col3 = st.columns(3, gap='medium')
-    
-    # Add CSS to center the content
     st.markdown("""
         <style>
         .metric-container {
@@ -131,17 +126,18 @@ def static_analysis_page():
     collection = connect_to_mongo()
     stock_selector = st.sidebar.selectbox('Select Stock', options=sorted(collection.distinct("symbol")), index=0)
     
-    filtered_df = fetch_stock_data(collection, stock_selector)
-    filtered_df = filtered_df.sort_values(by=['date'])
+    filtered_df = fetch_stock_data(collection, stock_selector).sort_values(by=['date'])
     filtered_df = add_technical_features(filtered_df)
     filtered_trades = execute_trades(filtered_df)
     
-    # Add a checkbox to toggle the MACD plot
     show_macd = st.sidebar.checkbox("Show MACD", value=False)
-    
     fig = create_figure(filtered_df, filtered_trades, show_macd)
 
     st.plotly_chart(fig, use_container_width=True)
+
+def initialize_mongo_client(mongo_uri=MONGO_URI, db_name=DB_NAME):
+    client = pymongo.MongoClient(mongo_uri)
+    return client[db_name]
 
 @st.cache_data
 def get_current_date():
@@ -158,10 +154,9 @@ def fetch_data(db, collection_name, symbol, current_date):
     return db[collection_name].find({"symbol": symbol, "datetime": {"$gte": pd.to_datetime(current_date)}})
 
 def fetch_alerts(db, collection_name, symbol, interval, current_date, alert_type=None):
+    query = {"symbol": symbol, "interval":interval, "datetime": {"$gte": pd.to_datetime(current_date)}}
     if alert_type:
-        query = {"symbol": symbol, "datetime": {"$gte": pd.to_datetime(current_date)}, "alert_type": {"$in": alert_type}}
-    else:
-        query = {"symbol": symbol, "datetime": {"$gte": pd.to_datetime(current_date)}}
+        query["alert_type"] = {"$in": alert_type}
     return db[collection_name].find(query)
 
 def plot_candlestick_chart(filtered_df, filtered_live_alerts, filtered_batch_alerts, stock_selector, interval):
@@ -174,85 +169,50 @@ def plot_candlestick_chart(filtered_df, filtered_live_alerts, filtered_batch_ale
     )])
     for _, alert in filtered_live_alerts.iterrows():
         if alert['datetime'] in filtered_df.index:
-            if alert['alert_type'] == 'bullish_engulfer':
-                candlestick_chart.add_annotation(
-                    x=alert['datetime'],
-                    y=filtered_df.loc[alert['datetime'], 'close'],
-                    text="Bullish Engulfing",
-                    showarrow=True,
-                    arrowhead=1
-                )
-            elif alert['alert_type'] == 'bearish_engulfer':
-                candlestick_chart.add_annotation(
-                    x=alert['datetime'],
-                    y=filtered_df.loc[alert['datetime'], 'close'],
-                    text="Bearish Engulfing",
-                    showarrow=True,
-                    arrowhead=1
-                )
-            elif alert['alert_type'] == 'bullish_382':
-                candlestick_chart.add_annotation(
-                    x=alert['datetime'],
-                    y=filtered_df.loc[alert['datetime'], 'close'],
-                    text="Hammer",
-                    showarrow=True,
-                    arrowhead=1
-                )
-    # Add support lines
-    if 'support' in filtered_batch_alerts.columns:
-        for _, row in filtered_batch_alerts.iterrows():
-            end_date = row['datetime'] + pd.Timedelta(minutes=60)
-            row['datetime'] = row['datetime'].strftime('%Y-%m-%d %H:%M:%S')
-            end_date = end_date.strftime('%Y-%m-%d %H:%M:%S')
-            candlestick_chart.add_trace(go.Scatter(x=[row['datetime'], end_date], 
-                                    y=[row['support'], row['support']], 
-                                    mode='lines', 
-                                    line=dict(color='blue', width=1, dash='dash'), 
-                                    name='Support'))
-
-    # Add resistance lines
-    if 'resistance' in filtered_batch_alerts.columns:
-        for _, row in filtered_batch_alerts.iterrows():
-            end_date = row['datetime'] + pd.Timedelta(minutes=60)
-            row['datetime'] = row['datetime'].strftime('%Y-%m-%d %H:%M:%S')
-            end_date = end_date.strftime('%Y-%m-%d %H:%M:%S')
-            candlestick_chart.add_trace(go.Scatter(x=[row['datetime'], end_date], 
-                                    y=[row['resistance'], row['resistance']], 
-                                    mode='lines', 
-                                    line=dict(color='red', width=1, dash='dash'), 
-                                    name='Resistance'))
-            
+            alert_text = {
+                'bullish_engulfer': "Bullish Engulfing",
+                'bearish_engulfer': "Bearish Engulfing",
+                'bullish_382': "Hammer"
+            }.get(alert['alert_type'], "")
+            candlestick_chart.add_annotation(
+                x=alert['datetime'],
+                y=filtered_df.loc[alert['datetime'], 'close'],
+                text=alert_text,
+                showarrow=True,
+                arrowhead=1
+            )
+    for _, row in filtered_batch_alerts.iterrows():
+        end_date = row['datetime'] + pd.Timedelta(minutes=60)
+        row['datetime'] = row['datetime'].strftime('%Y-%m-%d %H:%M:%S')
+        end_date = end_date.strftime('%Y-%m-%d %H:%M:%S')
+        for line_type, color in [('support', 'blue'), ('resistance', 'red')]:
+            if line_type in row:
+                candlestick_chart.add_trace(go.Scatter(
+                    x=[row['datetime'], end_date], 
+                    y=[row[line_type], row[line_type]], 
+                    mode='lines', 
+                    line=dict(color=color, width=1, dash='dash'), 
+                    name=line_type.capitalize()
+                ))
     candlestick_chart.update_layout(xaxis_rangeslider_visible=False, showlegend=False, title=f'{stock_selector} Candlestick Chart ({interval})')
     return candlestick_chart
 
 def live_alert_page():
     st.sidebar.header("Stock Selector")
 
-    db = init_connection()[STREAMING_DB_NAME]
+    db = initialize_mongo_client()
     options = sorted(db[STREAMING_COLLECTIONS[0]].distinct("symbol"))
     current_date = get_current_date()
     st.write(f"Current Date: {current_date}")
     st.title('Live Alert Tracking Dashboard')
     stock_selector = st.sidebar.selectbox('Select Stock', options=options, index=0)
     
-    chart_placeholders = {interval: st.empty() for interval in ['5m', '30m', '60m']}
-    interval_topic_map = {interval: f'{interval}_stock_datastream' for interval in ['5m', '30m', '60m']}
-
+    chart_placeholders = {interval: st.empty() for interval in DESIRED_STREAMING_INTERVAL}
     def update_chart(interval):
-        selected_topic = interval_topic_map[interval]
+        selected_topic = f"{interval}_stock_datastream"
         filtered_query = fetch_data(db, selected_topic, stock_selector, current_date)
-        filtered_live_alerts_query = fetch_alerts(db, 
-                                                'stock_live_alert',
-                                                stock_selector, 
-                                                interval, 
-                                                current_date, 
-                                                alert_type=["bullish_engulfer","bearish_engulfer","bullish_382"])
-        
-        filtered_batch_alerts_query = fetch_alerts(db, 
-                                                'stock_batch_alert',
-                                                stock_selector, 
-                                                interval, 
-                                                current_date)
+        filtered_live_alerts_query = fetch_alerts(db, LIVE_ALERT_COLLECTION, stock_selector, interval, current_date, alert_type=["bullish_engulfer","bearish_engulfer","bullish_382"])
+        filtered_batch_alerts_query = fetch_alerts(db, BATCH_ALERT_COLLECTION, stock_selector, interval, current_date)
         
         filtered_df = pd.DataFrame(list(filtered_query))
         filtered_live_alerts = pd.DataFrame(list(filtered_live_alerts_query))
@@ -260,22 +220,15 @@ def live_alert_page():
         if not filtered_df.empty:
             filtered_df['datetime'] = pd.to_datetime(filtered_df['datetime'])
             filtered_df.set_index('datetime', inplace=True)
-            candlestick_chart = plot_candlestick_chart(filtered_df, 
-                                                    filtered_live_alerts,
-                                                    filtered_batch_alerts,
-                                                    stock_selector, 
-                                                    interval)
+            candlestick_chart = plot_candlestick_chart(filtered_df, filtered_live_alerts, filtered_batch_alerts, stock_selector, interval)
             chart_placeholders[interval].plotly_chart(candlestick_chart)
         else:
             chart_placeholders[interval].write(f"No data available for {stock_selector} in {interval} interval")
             
-    # Update the charts for all intervals
     while True:
-        for interval in ['5m', '30m', '60m']:  
-            # Update the chart every 1 minute
+        for interval in DESIRED_STREAMING_INTERVAL:  
             update_chart(interval)
         time.sleep(60)
-        
 
 def main():
     st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")

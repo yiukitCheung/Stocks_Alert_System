@@ -6,7 +6,11 @@ from utils.batch_alert import trend_pattern
 import logging
 from pymongo import MongoClient, DESCENDING
 from datetime import datetime, timezone
-import os
+import os, sys
+# Add project root to sys.path dynamically
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+from config.mongdb_config import load_mongo_config
+from config.kafka_config import load_kafka_config
 
 # Configure logging
 logging.basicConfig(
@@ -14,25 +18,10 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Set the logging format
     handlers=[logging.StreamHandler()]  # Add a stream handler to print to console
 )
-class kafka_config:
-    @staticmethod
-    def read_config():
-        config = {}
-        root_dir = os.path.dirname(os.path.abspath(__file__))
-        client_properties_path = os.path.join(root_dir,"client.properties")
-        print(client_properties_path)
-        with open(client_properties_path) as fh:
-            for line in fh:
-                line = line.strip()
-                if len(line) != 0 and line[0] != "#":
-                    parameter, value = line.strip().split('=', 1)
-                    config[parameter] = value.strip()
-        return config
 
 class DataStreamProcess:
-    def __init__(self, lookback, 
-                mongo_uri,
-                db_name="streaming_data"):
+    def __init__(self, lookback, mongo_uri, db_name, kafka_config, 
+                datastream_topics, live_alert_collection, batch_alert_collection):
         
         # Initialize the batch
         self.batch = {}
@@ -44,21 +33,19 @@ class DataStreamProcess:
         self.pointer_b = 1
         
         # Initialize the MongoDB client
-        self.client = MongoClient(mongo_uri, maxPoolSize=50, minPoolSize=1)
+        self.client = MongoClient(mongo_uri)
         self.db = self.client[db_name]
+        self.live_alert_collection = live_alert_collection
+        self.batch_alert_collection = batch_alert_collection
         
         # Initialize the Kafka consumer
-        self.kafka_config = kafka_config.read_config()
+        self.kafka_config = kafka_config
         self.kafka_config["group.id"] = "my-consumer-group"
         self.kafka_config["auto.offset.reset"] = "latest"
         self.consumer = Consumer(self.kafka_config)
         
         # Set the topic name 
-        self.stock_live_alert_topic = 'stock_live_alert'
-        self.stock_batch_alert_topic = 'stock_batch_alert'
-        self.datastream_topics = ['5m_stock_datastream',
-                                '30m_stock_datastream',
-                                '60m_stock_datastream']
+        self.datastream_topics = datastream_topics
         
     def store_datastream(self, symbol, value, topic):
         if topic not in self.db.list_collection_names():
@@ -101,7 +88,7 @@ class DataStreamProcess:
             
     def store_live_alert(self,symbol,value,interval):
         
-        if "stock_live_alert" not in self.db.list_collection_names():
+        if self.live_alert_collection not in self.db.list_collection_names():
             self.db.create_collection(
                 "stock_live_alert",
                 timeseries={
@@ -110,7 +97,7 @@ class DataStreamProcess:
                     "granularity": "hours"
                 }
             )
-            logging.info(f"Time Series Collection stock_live_alert created successfully")
+            logging.info(f"Time Series Collection {self.live_alert_collection} created successfully")
         
         # Ensure the date is in datetime format
         value['datetime'] = pd.to_datetime(value['datetime'])
@@ -120,7 +107,7 @@ class DataStreamProcess:
             value['date'] = value['datetime'].to_pydatetime()
 
         # Fetch the last record for the given symbol
-        last_record = list(self.db["stock_live_alert"].find({"symbol": symbol, 
+        last_record = list(self.db[self.live_alert_collection].find({"symbol": symbol, 
                                                             "interval": interval}).sort("date", DESCENDING).limit(1))
         
         # Ensure last_record[0]['date'] is timezone-aware
@@ -134,22 +121,22 @@ class DataStreamProcess:
             
         # Insert the new record if the collection is empty or the new date is greater than the last date
         if not last_record or last_record[0]['date'] < value['date']:
-            self.db["stock_live_alert"].insert_one(value)
-            logging.info(f"Inserted new record for {symbol} in stock_live_alert")
+            self.db[self.live_alert_collection].insert_one(value)
+            logging.info(f"Inserted new record for {symbol} in {self.live_alert_collection}")
         else:
-            logging.info(f"Record for {symbol} in stock_live_alert is not newer than the last record")
+            logging.info(f"Record for {symbol} in {self.live_alert_collection} is not newer than the last record")
             
     def store_batch_alert(self,symbol,value):
-        if "stock_batch_alert" not in self.db.list_collection_names():
+        if self.batch_alert_collection not in self.db.list_collection_names():
             self.db.create_collection(
-                "stock_batch_alert",
+                self.batch_alert_collection,
                 timeseries={
                     "timeField": "date",  
                     "metaField": "symbol",  
                     "granularity": "hours"
                 }
             )
-            logging.info(f"Time Series Collection stock_batch_alert created successfully")
+            logging.info(f"Time Series Collection {self.batch_alert_collection} created successfully")
         
         # Ensure the date is in datetime format
         value['datetime'] = pd.to_datetime(value['datetime'])
@@ -159,7 +146,7 @@ class DataStreamProcess:
             value['date'] = value['datetime'].to_pydatetime()
 
         # Fetch the last record for the given symbol
-        last_record = list(self.db["stock_batch_alert"].find({"symbol": symbol}).sort("date", DESCENDING).limit(1))
+        last_record = list(self.db[self.batch_alert_collection].find({"symbol": symbol}).sort("date", DESCENDING).limit(1))
         
         # Ensure last_record[0]['date'] is timezone-aware
         if last_record:
@@ -172,10 +159,10 @@ class DataStreamProcess:
             
         # Insert the new record if the collection is empty or the new date is greater than the last date
         if not last_record or last_record[0]['date'] < value['date']:
-            self.db["stock_batch_alert"].insert_one(value)
-            logging.info(f"Inserted new record for {symbol} in stock_batch_alert")
+            self.db[self.batch_alert_collection].insert_one(value)
+            logging.info(f"Inserted new record for {symbol} in {self.batch_alert_collection}")
         else:
-            logging.info(f"Record for {symbol} in stock_batch_alert is not newer than the last record")
+            logging.info(f"Record for {symbol} in {self.batch_alert_collection} is not newer than the last record")
     
     def batch_process(self, symbol, records, interval):
         # Store price subsequently in a dict
@@ -304,13 +291,23 @@ class DataStreamProcess:
             # Process the record
             self.streaming_process(value, interval)
             self.batch_process(symbol=symbol, records=value, interval=interval)
-def read_mongo_config(file_path):
-    import configparser
-    config = configparser.ConfigParser()
-    print(config.read(file_path))
-    
-    return config['DEFAULT']['mongodb_uri']     
 
 if __name__ == '__main__':
-    datastream = DataStreamProcess(lookback=15, mongo_uri=read_mongo_config('mongo.properties'))
+    # Load the MongoDB configuration
+    mongo_db_config = load_mongo_config()
+    url = mongo_db_config['url']
+    db_name = mongo_db_config['db_name']
+    datastream_topics =  [f"{interval}_stock_datastream" for interval in mongo_db_config['streaming_interval']]
+    live_alert_collection = mongo_db_config['alert_collection_name']['live']
+    batch_alert_collection = mongo_db_config['alert_collection_name']['batch']
+    # Load the Kafka configuration
+    kafka_config = load_kafka_config()
+    
+    datastream = DataStreamProcess(lookback=15, mongo_uri=url, 
+                                db_name=db_name, 
+                                kafka_config=kafka_config, 
+                                datastream_topics=datastream_topics,
+                                live_alert_collection=live_alert_collection,
+                                batch_alert_collection=batch_alert_collection)
+    
     datastream.fetch_and_transform_datastream()

@@ -4,7 +4,11 @@ import json, schedule, time
 import pandas as pd
 from pymongo import MongoClient, DESCENDING
 import traceback, logging
-import os
+import sys, os
+# Add project root to sys.path dynamically
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+from config.mongdb_config import load_mongo_config
+from config.kafka_config import load_kafka_config
 
 # Configure logging
 logging.basicConfig(
@@ -13,67 +17,50 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]  # Add a stream handler to print to console
 )
 
-class kafka_config:
-    @staticmethod
-    def read_config():
-        config = {}
-        with open('client.properties') as fh:
-            for line in fh:
-                line = line.strip()
-                if len(line) != 0 and line[0] != "#":
-                    parameter, value = line.strip().split('=', 1)
-                    config[parameter] = value.strip()
-        return config
-    
 class StockDataExtractor:
     
-    def __init__(self,symbols,mongo_url,
-                db_name="historic_data", 
-                daily_collection_name="daily_stock_price",
-                weekly_collection_name="weekly_stock_price"):
+    def __init__(self,symbols,mongo_url,db_name,streaming_interval,warehouse_interval,kafka_config):
 
         # Set the class variables
         self.symbols = symbols
         self.current_date = (pd.to_datetime("today")).strftime('%Y-%m-%d')
-        self.last_fetch = {symbol: {interval: None for interval in ['5m', '30m', '60m']} for symbol in self.symbols}
-        
+        self.last_fetch = {symbol: {interval: None for interval in streaming_interval} for symbol in self.symbols}
+        self.streaming_interval = streaming_interval
         # Initialize the MongoDB client
         self.client = MongoClient(mongo_url)
         self.db = self.client[db_name]
-        self.daily_collection_name = self.daily_topic_name = daily_collection_name
-        self.weekly_collection_name = self.weekly_topic_name = weekly_collection_name
+
+        self.warehouse_collection_name = self.warehouse_topics = [f"{interval}_data" for interval in warehouse_interval]
+        self.streaming_collection_name = self.streaming_topics = [f"{interval}_stock_datastream" for interval in streaming_interval]
         
         # Initialize the Kafka producer
-        self.kafka_config = kafka_config.read_config()
-        self.producer = Producer(self.kafka_config)
+        self.producer = Producer(kafka_config)
         
         # Create Time Series Collection if it does not exist
-        self.create_collection_if_not_exists(self.daily_collection_name)
-        self.create_collection_if_not_exists(self.weekly_collection_name)
+        self.create_collection_if_not_exists(self.warehouse_collection_name+self.streaming_collection_name)
 
-        # Set the collection
-        self.daily_collection = self.db[self.daily_collection_name]
-        self.weekly_collection = self.db[self.weekly_collection_name]
-        
         # Collection to be stored in MongoDB
-        self.collection_dict = {self.daily_collection_name: (self.daily_collection, '1d'), 
-                                self.weekly_collection_name: (self.weekly_collection, '1wk')}       
+        self.warehouse_collection_dict = {collection_name: (self.db[collection_name], collection_name.split('_')[0]) for collection_name in self.warehouse_collection_name}
+        self.streaming_collection_dict = {collection_name: (self.db[collection_name], collection_name.split('_')[0]) for collection_name in self.streaming_collection_name}    
+            
+    def create_collection_if_not_exists(self, collection_names: list):
         
-    def create_collection_if_not_exists(self, collection_name):
-        if collection_name not in self.db.list_collection_names():
-            self.db.create_collection(
-                collection_name,
-                timeseries={
-                    "timeField": "date",  
-                    "metaField": "symbol",  
-                    "granularity": "hours"
-                }
-            )
-            logging.info(f"Time Series Collection {collection_name} created successfully")
-            time.sleep(3)
+        for collection_name in collection_names:
+            if collection_name not in self.db.list_collection_names():
+                self.db.create_collection(
+                    collection_name,
+                    timeseries={
+                        "timeField": "date" if 'datastream' not in collection_name else "datetime",  
+                        "metaField": "symbol",  
+                        "granularity": "hours" if 'datastream' not in collection_name else "minutes"
+                    },
+                    expireAfterSeconds= 60*60*24*365*5 if 'datastream' not in collection_name else None
+                )
+                logging.info(f"Time Series Collection {collection_name} created successfully")
+                time.sleep(3)
             
     def fetch_and_produce_stock_data(self):
-        for collection_name, (collection, interval) in self.collection_dict.items():
+        for collection_name, (collection, interval) in self.warehouse_collection_dict.items():
             for symbol in self.symbols:
                 try:
                     # Fetch data from Yahoo Finance
@@ -111,9 +98,10 @@ class StockDataExtractor:
                                 'close': record['Close'],
                                 'volume': record['Volume']
                             }
+                            # Serialize the record
                             serilized_record = json.dumps(stock_record)
+                            # Send data to the respective topic
                             self.producer.produce(topic=collection_name, value=serilized_record)
-                            
             
                         # Flush the producer after all messages have been sent
                         self.producer.flush()
@@ -125,54 +113,48 @@ class StockDataExtractor:
                 # Check the last reocrd date in the symbol
                 logging.info(f"Fetching data for {symbol} completed!")
     
-    def fetch_and_produce_datastream(self, interval):
-        for symbol in self.symbols:
-            try:
-                start_date = self.last_fetch[symbol][interval] or self.current_date
-                # Fetch data from Yahoo Finance
-                ticker = yf.Ticker(symbol)
-                data = ticker.history(start=start_date, interval=interval).reset_index()
-                
-                # Produce data to Kafka
-                if not data.empty:
-                    for _, record in data.iterrows():
-                        stock_record = {
-                            'symbol': symbol,
-                            'datetime': record['Datetime'].strftime('%Y-%m-%d %H:%M:%S'),
-                            'open': record['Open'],
-                            'high': record['High'],
-                            'low': record['Low'],
-                            'close': record['Close'],
-                            'volume': record['Volume']
-                        }
-                        
-                        serialized_record = json.dumps(stock_record)
-                        serialized_key = symbol.encode('utf-8')
-                        # Send data to the respective topic
-                        self.producer.produce(topic=f'{interval}_stock_datastream', 
-                                                key=serialized_key,
-                                                value=serialized_record)
-                    # Update the last fetch time
-                    self.last_fetch[symbol][interval] = pd.to_datetime('now')
-                    # Flush the producer after all messages have been sent
-                    self.producer.flush()
-                    logging.info(f"Data for {symbol} until {stock_record['datetime']} sent successfully to {interval} stock_datastream")
-
-            except Exception as e:
-                logging.error(f"Error fetching data for {symbol}: {e}")
-                traceback.print_exc()
+    def fetch_and_produce_datastream(self):
+        for topic_name, (_, interval) in self.streaming_collection_dict.items():
+            for symbol in self.symbols:
+                try:
+                    ticker = yf.Ticker(symbol)
                     
-    def close_producer(self):
-        if self.producer:
-            
-            self.producer.close()
-            logging.info("Kafka producer closed successfully")
-            
+                    start_date = self.last_fetch[symbol][interval] or self.current_date
+                    # Fetch data from Yahoo Finance
+                    data = ticker.history(start=start_date, interval=interval).reset_index()
+                    
+                    # Produce data to Kafka
+                    if not data.empty:
+                        for _, record in data.iterrows():
+                            stock_record = {
+                                'symbol': symbol,
+                                'datetime': record['Datetime'].strftime('%Y-%m-%d %H:%M:%S'),
+                                'open': record['Open'],
+                                'high': record['High'],
+                                'low': record['Low'],
+                                'close': record['Close'],
+                                'volume': record['Volume']
+                            }
+                            
+                            serialized_record = json.dumps(stock_record)
+                            serialized_key = symbol.encode('utf-8')
+                            # Send data to the respective topic
+                            self.producer.produce(topic=topic_name, 
+                                                    key=serialized_key,
+                                                    value=serialized_record)
+                        # Update the last fetch time
+                        self.last_fetch[symbol][interval] = pd.to_datetime('now')
+                        # Flush the producer after all messages have been sent
+                        self.producer.flush()
+                        logging.info(f"Data for {symbol} until {stock_record['datetime']} sent successfully to {interval} stock_datastream")
+                except Exception as e:
+                    logging.error(f"Error fetching data for {symbol}: {e}")
+                    traceback.print_exc()
+                    
     def start_scheduled_datastream_consuming(self):
         
         # Fetch data immediately for all intervals
-        for interval in ['5m', '30m', '60m']:
-            self.fetch_and_produce_datastream(interval)
+        self.fetch_and_produce_datastream()
             
         trading = True
         if pd.to_datetime('now').hour < 14:
@@ -192,32 +174,34 @@ class StockDataExtractor:
             
                 #  End if trading hour is over
                 
-        if pd.to_datetime('now').hour >= 14:
-            print("Trading hour is over!")
-            time.sleep(5)
-            # Consume and Ingest daily and weekly stock data
-            self.fetch_and_produce_stock_data()
-            logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
-    
-def read_mongo_config(file_path):
-    import configparser
-    config = configparser.ConfigParser()
-    print(config.read(file_path))
-    
-    return config['DEFAULT']['mongodb_uri']     
+            if pd.to_datetime('now').hour >= 14:
+                print("Trading hour is over!")
+                time.sleep(5)
+                # Consume and Ingest daily and weekly stock data
+                self.fetch_and_produce_stock_data()
+                logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
 
-# Usage example
-if __name__ == "__main__":    
-    stock_symbols = [
-        "NVDA", "TSLA", "META", "GOOGL", "PLTR", "GOOG", 
-        "FSLR", "BSX", "GOLD", "EA", "INTU", "SHOP", "ADI", "RMD", 
-        "ISRG", "ANET", "VRTX", "WELL", "WAB", "O", "AEM", "VICI", 
-        "XYL", "IR", "AME", "VEEV", "FTV", "INFY", "KHC", "SAP", 
-        "GRMN", "CP", "TCOM", "ALC", "TW", "EQR", "FAST", "ERIE",
-        "TRI", "GIB", "CHT"]
+if __name__ == "__main__": 
+    # Load the MongoDB configuration
+    mongo_url = load_mongo_config()['url']
+    db_name = load_mongo_config()["db_name"]
     
+    # Load the streaming and warehouse interval
+    streaming_interval = load_mongo_config()["streaming_interval"]
+    warehouse_interval = load_mongo_config()["warehouse_interval"]
+    
+    # Load the Kafka configuration
+    kafka_config = load_kafka_config()
+    # List of stock symbols
+    stock_symbols = ["QQQ", "SPY", "SOXX", "DJIA", "IWM","NVDA", "AAPL", "TSLA", "MSFT", "AMZN"]
+    
+    # Initialize the StockDataExtractor
     extractor = StockDataExtractor(symbols=stock_symbols,
-                                mongo_url=read_mongo_config('mongo.properties'))
+                                mongo_url=mongo_url,
+                                db_name=db_name,
+                                streaming_interval=streaming_interval,
+                                warehouse_interval=warehouse_interval,
+                                kafka_config=kafka_config)
+    
     extractor.start_scheduled_datastream_consuming()
 
-    

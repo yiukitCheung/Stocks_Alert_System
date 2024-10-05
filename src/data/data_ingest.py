@@ -6,32 +6,22 @@ import schedule
 import time
 import logging
 from datetime import datetime
-import os
+import sys, os
+# Add project root to sys.path dynamically
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+from config.mongdb_config import load_mongo_config
+from config.kafka_config import load_kafka_config
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,  # Set the logging level to INFO
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Set the logging format
     handlers=[logging.StreamHandler()]  # Add a stream handler to print to console
 )
-class kafka_config:
-    @staticmethod
-    def read_config():
-        config = {}
 
-        with open("client.properties") as fh:
-            for line in fh:
-                line = line.strip()
-                if len(line) != 0 and line[0] != "#":
-                    parameter, value = line.strip().split('=', 1)
-                    config[parameter] = value.strip()
-        return config
 
 class StockDataIngestor:
-    def __init__(self,schedule_time,
-                mongo_uri,
-                db_name="historic_data", 
-                daily_collection_name="daily_stock_price",
-                weekly_collection_name="weekly_stock_price"):
+    def __init__(self,schedule_time,mongo_uri, db_name, topics, kafka_config):
 
         self.current_date = pd.to_datetime('today').strftime('%Y-%m-%d')
         self.schedule_time = schedule_time
@@ -41,11 +31,10 @@ class StockDataIngestor:
         self.db = self.client[db_name]
         
         # set the collection and topics names
-        self.daily_topic = daily_collection_name
-        self.weekly_topic = weekly_collection_name
+        self.topics = topics
         
         # Initialize the Kafka consumer
-        self.kafka_config = kafka_config.read_config()
+        self.kafka_config = kafka_config
         self.kafka_config["group.id"] = "my-consumer-group"
         self.kafka_config["auto.offset.reset"] = "earliest"
         self.consumer = Consumer(self.kafka_config)
@@ -57,14 +46,13 @@ class StockDataIngestor:
             logging.error(f"Error inserting data: {e}")
         
     def consume_kafka(self):
-        self.consumer.subscribe(topics=[self.daily_topic, self.weekly_topic])
+        self.consumer.subscribe(topics=self.topics)
         batch = []
         batch_size = 5000
         try:
             while True:
                 msg = self.consumer.poll(0.1)
                 if msg is None:
-                    logging.info("No new messages")
                     continue
                 if msg.error():
                     logging.error(f"Consumer error: {msg.error()}")
@@ -110,13 +98,22 @@ class StockDataIngestor:
                 time.sleep(1)
         else:
             self.consume_kafka()
-def read_mongo_config(file_path):
-    import configparser
-    config = configparser.ConfigParser()
-    print(config.read(file_path))
-    
-    return config['DEFAULT']['mongodb_uri'] 
 
-if __name__ == "__main__":
-    ingestor = StockDataIngestor(schedule_time=None, mongo_uri=read_mongo_config("mongo.properties"))
+if __name__ == "__main__": 
+    # Load the MongoDB configuration once
+    mongo_config = load_mongo_config()
+    mongo_url = mongo_config['url']
+    db_name = mongo_config["db_name"]
+    warehouse_interval = mongo_config["warehouse_interval"]
+    warehouse_topics = [f"{interval}_data" for interval in warehouse_interval]
+
+    # Kafka configuration
+    kafka_config = load_kafka_config()
+    
+    ingestor = StockDataIngestor(schedule_time=None, 
+                                mongo_uri=mongo_url, 
+                                db_name=db_name, 
+                                topics=warehouse_topics,
+                                kafka_config=kafka_config)
+    
     ingestor.schedule_data_data_consumption()
