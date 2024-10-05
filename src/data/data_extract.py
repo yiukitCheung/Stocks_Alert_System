@@ -153,33 +153,33 @@ class StockDataExtractor:
                     
     def start_scheduled_datastream_consuming(self):
         
-        # Fetch data immediately for all intervals
-        self.fetch_and_produce_datastream()
+        # # Fetch data immediately for all intervals
+        # self.fetch_and_produce_datastream()
             
-        trading = True
-        if pd.to_datetime('now').hour < 14:
-            # Schedule datastream consuming tasks for different intervals
-            for mintue in range(5, 60, 5):
-                schedule.every().hour.at(f":{mintue:02d}").do(self.fetch_and_produce_datastream, interval='5m')
-            for mintue in range(30, 60, 30):
-                schedule.every().hour.at(f":{mintue:02d}").do(self.fetch_and_produce_datastream, interval='30m')
+        # trading = True
+        # if pd.to_datetime('now').hour < 14:
+        #     # Schedule datastream consuming tasks for different intervals
+        #     for mintue in range(5, 60, 5):
+        #         schedule.every().hour.at(f":{mintue:02d}").do(self.fetch_and_produce_datastream, interval='5m')
+        #     for mintue in range(30, 60, 30):
+        #         schedule.every().hour.at(f":{mintue:02d}").do(self.fetch_and_produce_datastream, interval='30m')
                 
-            schedule.every().hour.at(":00").do(self.fetch_and_produce_datastream, interval='60m')
+        #     schedule.every().hour.at(":00").do(self.fetch_and_produce_datastream, interval='60m')
             
-            while trading:
-                schedule.run_pending()
-                time.sleep(1)
-                if pd.to_datetime('now').hour >= 14:
-                    trading = False 
+        #     while trading:
+        #         schedule.run_pending()
+        #         time.sleep(1)
+        #         if pd.to_datetime('now').hour >= 14:
+        #             trading = False 
             
-                #  End if trading hour is over
+        #         #  End if trading hour is over
                 
-            if pd.to_datetime('now').hour >= 14:
-                print("Trading hour is over!")
-                time.sleep(5)
-                # Consume and Ingest daily and weekly stock data
-                self.fetch_and_produce_stock_data()
-                logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
+        #     if pd.to_datetime('now').hour >= 14:
+        #         print("Trading hour is over!")
+        #         time.sleep(5)
+        #         # Consume and Ingest daily and weekly stock data
+        self.fetch_and_produce_stock_data()
+        logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
 
 if __name__ == "__main__": 
     # Load the MongoDB configuration

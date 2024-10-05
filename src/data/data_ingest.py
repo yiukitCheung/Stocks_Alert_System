@@ -47,47 +47,53 @@ class StockDataIngestor:
         
     def consume_kafka(self):
         self.consumer.subscribe(topics=self.topics)
-        batch = []
+        batch = {}
+        batch = {interval: batch.get(interval, []) for interval in self.topics}                
         batch_size = 5000
+        
         try:
             while True:
                 msg = self.consumer.poll(0.1)
                 if msg is None:
-                    continue
-                if msg.error():
-                    logging.error(f"Consumer error: {msg.error()}")
-                    continue
-                try:
-                    # Extract data from ConsumerRecord
-                    deserialize_msg = json.loads(msg.value().decode('utf-8'))
-                except Exception as e:
-                    logging.error(f"Error deserializing message: {e}")
-                    continue
+                    # Insert any remaining records in the batch
+                    if any(len(records) > 0 for records in batch.values()):
+                        for collection_name, records in batch.items():
+                            if batch[collection_name]:
+                                self.insert_data(collection_name, records)
+                                logging.info(f"Inserted {len(records)} records into {collection_name}")
+                                batch[collection_name] = []
+                            else:
+                                self.consumer.close()
+                    else:
+                        logging.info("No new messages")
+                        continue
+                else:
+                    try:
+                        # Extract data from ConsumerRecord
+                        deserialize_msg = json.loads(msg.value().decode('utf-8'))
+                    except Exception as e:
+                        logging.error(f"Error deserializing message: {e}")
+                        continue
+                    
+                    # Extract the value from the ConsumerRecord
+                    records = deserialize_msg if isinstance(deserialize_msg, list) else [deserialize_msg]
+                    collection_name = msg.topic() # Kafka Topic name = collection name in mongdb database
+                    # Convert 'date' field to datetime
+                    for record in records:
+                        if 'date' in record:
+                            record['date'] = datetime.strptime(record['date'], '%Y-%m-%d')
+                    
+                    # Append the records to the batch in the corresponding collection
+                    batch[collection_name].extend(records)
+                    # Insert the batch into the database if it reaches the batch size for the collection
+                    if len(batch[collection_name]) >= batch_size:
+                        self.insert_data(collection_name, batch[collection_name])
+                        logging.info(f"Inserted {len(batch[collection_name])} records into {collection_name}")
+                        batch[collection_name] = []
                 
-                # Extract the value from the ConsumerRecord
-                records = deserialize_msg if isinstance(deserialize_msg, list) else [deserialize_msg]
-                collection_name = msg.topic() # Topic name is the collection name
-                # Convert 'date' field to datetime
-                for record in records:
-                    if 'date' in record:
-                        record['date'] = datetime.strptime(record['date'], '%Y-%m-%d')
-                
-                batch.extend(records)
-                if len(batch) >= batch_size:
-                    self.insert_data(collection_name, batch)
-                    logging.info(f"Inserted {len(batch)} records into {collection_name, self.db}")
-                    batch = []
-                        
         except KeyboardInterrupt:
             logging.info("Closing consumer")
             
-        finally:
-            # Insert any remaining records in the batch
-            if batch:
-                self.insert_data(collection_name, batch)
-                logging.info(f"Inserted {len(batch)} remaining records into {collection_name}")
-            self.consumer.close()
-                
     def schedule_data_data_consumption(self):
         if self.schedule_time:
             schedule.every().day.at(self.schedule_time).do(self.consume_kafka)
