@@ -8,18 +8,13 @@ from utils.trading_strategy import TradingStrategy
 from utils.features_engineering import add_features
 import time, os, sys
 
-# Add project root to sys.path dynamically
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-from config.mongdb_config import load_mongo_config
-
 # MongoDB Configuration
-mongodb_config = load_mongo_config()
-DB_NAME = mongodb_config['db_name']
-COLLECTION_NAME = f'{mongodb_config["warehouse_interval"][0]}_data'
-STREAMING_COLLECTIONS = [f'{interval}_stock_datastream' for interval in mongodb_config['streaming_interval']]
-LIVE_ALERT_COLLECTION = mongodb_config['alert_collection_name']['live']
-BATCH_ALERT_COLLECTION = mongodb_config['alert_collection_name']['batch']
-DESIRED_STREAMING_INTERVAL = mongodb_config['streaming_interval']
+DB_NAME = st.secrets['db_name']
+COLLECTION_NAME = f'{st.secrets.warehouse_interval[0]}_data'
+STREAMING_COLLECTIONS = [f'{interval}_stock_datastream' for interval in st.secrets.streaming_interval]
+LIVE_ALERT_COLLECTION = st.secrets.live
+BATCH_ALERT_COLLECTION = st.secrets.batch
+DESIRED_STREAMING_INTERVAL = st.secrets.streaming_interval
 
 def connect_to_mongo(db_name=DB_NAME, collection_name=COLLECTION_NAME):
     client = pymongo.MongoClient(**st.secrets["mongo"])

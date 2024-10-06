@@ -2,16 +2,11 @@ import pymongo, os, sys
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import OneHotEncoder
-# Add project root to sys.path dynamically
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-from config.mongodb_config import load_mongo_config
-from config.data_pipeline_config import load_pipeline_config
 
 class fetch_and_split_data:
     def __init__(self, 
                 symbol:list, 
-                mongodb_config = load_pipeline_config(),
-                data_pipeline_config = load_pipeline_config()):
+                mongodb_config):
         """
         Initializes the MongoDB connection and prepares the collection for the stock data.
 
@@ -22,9 +17,9 @@ class fetch_and_split_data:
             mongo_uri (str): MongoDB connection URI (default is localhost).
         """
         self.client = pymongo.MongoClient(mongodb_config['url'])
-        self.db = self.client[load_mongo_config()['db_name']]
-        self.collection = mongodb_config['process_collection_name']
-        self.save_path = data_pipeline_config['make_train']['save_path']
+        self.db = self.client[mongodb_config['db_name']]
+        self.collection = self.db[mongodb_config['process_collection_name']]
+        self.interval = mongodb_config['warehouse_interval'][0] # Daily data
         self.symbol = symbol
         self.df = None
         self.df_test = None
@@ -33,7 +28,7 @@ class fetch_and_split_data:
         """Fetches stock data from the MongoDB collection and converts it to a Pandas DataFrame."""
         # Fetch the data from MongoDB
         fetched_data_lst = list(self.collection.find({"symbol": self.symbol,
-                                                    "interval": "daily"}))
+                                                    "interval": self.interval}))
 
         # Extract the desired stock symbol's technical data
         if not len(fetched_data_lst) == 0:
@@ -68,7 +63,7 @@ class fetch_and_split_data:
             raise ValueError("Test data not available. Call split_data() first.")
 
 class prepare_data:
-    def __init__(self, exclude_columns=None):
+    def __init__(self, symbol, data_pipeline_config, exclude_columns=None):
         """
         Initializes the DataPreprocessor with the columns to exclude from log transformation.
 
@@ -77,7 +72,9 @@ class prepare_data:
         """
         self.exclude_columns = exclude_columns if exclude_columns else ['MACD', 'MACD_SIGNAL', 'MACD_HIST']
         self.ohe = OneHotEncoder(drop='first')  # OneHotEncoder for categorical columns
-        
+        self.save_path = data_pipeline_config['make_train']['save_path']
+        self.symbol = symbol
+
     def preprocess(self, df, train=True):
         """
         Preprocess the dataframe by performing the following steps:
@@ -93,7 +90,7 @@ class prepare_data:
         Returns:
             pd.DataFrame: The preprocessed dataframe.
         """
-        self.filename = '{self.symbol}_train_data.parquet' if train else '{self.symbol}_test_data.parquet'
+        self.filename = f'{self.symbol}_train_data.parquet' if train else '{self.symbol}_test_data.parquet'
 
         # Step 1: Drop 'date' column and handle missing values
         df = df.drop(columns=['date'], errors='ignore')  # Avoids error if 'date' is missing
