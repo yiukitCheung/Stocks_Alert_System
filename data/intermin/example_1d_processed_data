@@ -1,0 +1,89 @@
+{
+    "timestamp": {
+        "$date": {
+            "$numberLong": "1589760000000"
+        }
+    },
+    "symbol": "AMZN",
+    "high": {
+        "$numberDouble": "126.27249908447266"
+    },
+    "dual_channel_Alert": {
+        "$numberInt": "-1"
+    },
+    "volume": {
+        "$numberInt": "413146000"
+    },
+    "169EMA": {
+        "$numberDouble": "101.67941038291261"
+    },
+    "8EMA": {
+        "$numberDouble": "120.13623495538238"
+    },
+    "date": {
+        "$date": {
+            "$numberLong": "1589760000000"
+        }
+    },
+    "CandleStickType": "green",
+    "_id": {
+        "$oid": "6700d948c524bdf016a50c13"
+    },
+    "169EMA_Lower": {
+        "$numberDouble": "96.59543986376697"
+    },
+    "close": {
+        "$numberDouble": "121.84400177001953"
+    },
+    "13EMA": {
+        "$numberDouble": "119.44762628568192"
+    },
+    "close_t-1": {
+        "$numberDouble": "121.31300354003906"
+    },
+    "close_t-3": {
+        "$numberDouble": "119.44249725341797"
+    },
+    "MACD": {
+        "$numberDouble": "2.468130446392152"
+    },
+    "open": {
+        "$numberDouble": "120.21749877929688"
+    },
+    "close_t-2": {
+        "$numberDouble": "120.48899841308594"
+    },
+    "169EMA_Upper": {
+        "$numberDouble": "106.76338090205824"
+    },
+    "atr": {
+        "$numberDouble": "5.351286883701347"
+    },
+    "low": {
+        "$numberDouble": "119.20050048828125"
+    },
+    "MACD_Alert": {
+        "$numberInt": "-1"
+    },
+    "MACD_HIST": {
+        "$numberDouble": "-0.2699047104110024"
+    },
+    "MACD_SIGNAL": {
+        "$numberDouble": "2.7380351568031545"
+    },
+    "Incremental_High": true,
+    "MACD_GOLDEN_CROSS": false,
+    "382_Alert": {
+        "$numberInt": "0"
+    },
+    "interval": "1d",
+    "Engulf_Alert": {
+        "$numberInt": "-1"
+    },
+    "144EMA": {
+        "$numberDouble": "103.09473539304656"
+    },
+    "BodyDiff": {
+        "$numberDouble": "1.6265029907226562"
+    }
+}

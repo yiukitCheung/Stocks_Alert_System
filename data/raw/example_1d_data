@@ -1,0 +1,26 @@
+{
+    "date": {
+        "$date": {
+            "$numberLong": "1568160000000"
+        }
+    },
+    "symbol": "AMZN",
+    "open": {
+        "$numberDouble": "90.60700225830078"
+    },
+    "high": {
+        "$numberDouble": "91.6709976196289"
+    },
+    "_id": {
+        "$oid": "6701a4a7b8bd0821a0f6a36f"
+    },
+    "volume": {
+        "$numberInt": "48656000"
+    },
+    "low": {
+        "$numberDouble": "90.4540023803711"
+    },
+    "close": {
+        "$numberDouble": "91.14949798583984"
+    }
+}

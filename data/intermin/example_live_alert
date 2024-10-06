@@ -1,0 +1,18 @@
+{
+    "_id": {
+        "$oid": "6700cef51f3b150689b659f5"
+    },
+    "symbol": "QQQ",
+    "interval": "5m",
+    "datetime": {
+        "$date": {
+            "$numberLong": "1728040800000"
+        }
+    },
+    "alert_type": "bearish_engulfer",
+    "date": {
+        "$date": {
+            "$numberLong": "1728040800000"
+        }
+    }
+}

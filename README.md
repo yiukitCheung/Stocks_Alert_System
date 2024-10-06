@@ -13,13 +13,20 @@ This project implements a **hybrid data pipeline** for streaming and batch proce
 
 ### 2. Batch Data Processing
 - **Technical Feature Engineering**: Larger datasets are processed to add technical features like exponential moving average, MACD, etc. In addition, a trading strategy alert is generated on top of the technical features as bullish/bearish signals. This enriched data will eventually feed into ML and DL models to predict stock returns.
-- **Data Storage**: Raw batch/streaming data, processed batch/streaming data, and training data are stored in the cloud-managed data lake via MongoDB Atlas. Training data are stored in Parquet format, while the others are stored in key-value document format, facilitating efficient queries by the program when needed.
+- **Data Storage**: Raw batch/streaming data, processed batch/streaming data, and training data are stored in the cloud-managed data lake via MongoDB Atlas. Training data are stored also in dictonary.
 
 ### 3. Strategy Sandbox Testing
 - **Trading Strategy**: A designed trading strategy implemented to create bullish/bearish signals for large interval batch data.
 - **Sandbox Testing**: A principal of $10,000 is initialized to buy and sell based on the strategy, generating the profit, win, and loss trades in a dashboard to demonstrate the strategy performance.
 
-### 4. Model Training (Upcoming)
+### 4. Interactive Dashboard
+- **Interactive Dashboard**: The system includes a dashboard that allows users to:
+  - **Strategy Performance View**: View the performance of the trading strategy for each stock, showing metrics such as profit, win/loss ratio, and trade details.
+  - **Live Alerts**: The dashboard provides live alerts for the current trading day, displaying buy/sell signals generated in real-time based on the streaming stock data.
+  
+  The dashboard is designed for both real-time monitoring and retrospective analysis, allowing users to visually inspect the technical indicators, alerts, and outcomes of the trading strategy in an interactive way.
+  
+### 5. Model Training (Upcoming)
 - **Model Pipeline**: A model pipeline is under development to train machine learning models on batch-processed stock data to predict future stock price movements.
 - **Model Storage**: Pre-trained models will be stored in `model_repository/`.
 
@@ -47,9 +54,7 @@ pip install -r requirements.txt
 
 ### Usage
 
-- **Streaming Alerts:**  Run the stream_processing.ipynb notebook to fetch real-time stock data, transform it, and visualize alerts in a live dashboard.
-
-- **Batch Processing:** Use the batch scripts in src/data/ to preprocess historical stock data, perform feature engineering, and prepare datasets for ML model training.
+- **Streaming Alerts:**  Click the ready to use streamlit to check the live alert and 
 
 ### Future Work
 

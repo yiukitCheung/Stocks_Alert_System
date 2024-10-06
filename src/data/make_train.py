@@ -14,12 +14,19 @@ def main():
         print(f"Making Train/Test Data for {symbol}")
         data_loader = fetch_and_split_data(symbol=symbol, 
                                         mongodb_config=mongodb_config)
+        print(f"Fetching {symbol} Data")
         data_loader.fetch_data()
+        print("Splitting Data")
         data_loader.split_data()
+        print("Getting Train Data")
         train_df = data_loader.get_train_data()
-        
-        data_preparation = prepare_data(symbol=symbol,data_pipeline_config=data_pipeline_config)
+        print("Getting Test Data")
+        test_df = data_loader.get_test_data()
+        data_preparation = prepare_data(symbol=symbol,data_pipeline_config=data_pipeline_config,mongodb_config=mongodb_config)
+        print("Saving train and test set to MongoDB")
         data_preparation.preprocess(train_df)
+        data_preparation.preprocess(test_df, train=False)
+        print(f"{symbol} Data Saved to MongoDB Successfully")
     
 if __name__ == "__main__":
     main()

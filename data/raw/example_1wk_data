@@ -1,0 +1,26 @@
+{
+    "date": {
+        "$date": {
+            "$numberLong": "1567987200000"
+        }
+    },
+    "symbol": "QQQ",
+    "open": {
+        "$numberDouble": "185.91302686156035"
+    },
+    "_id": {
+        "$oid": "6701a496b8bd0821a0f660cb"
+    },
+    "high": {
+        "$numberDouble": "188.35072713756776"
+    },
+    "close": {
+        "$numberDouble": "186.2515869140625"
+    },
+    "low": {
+        "$numberDouble": "182.74015369742574"
+    },
+    "volume": {
+        "$numberInt": "129575600"
+    }
+}

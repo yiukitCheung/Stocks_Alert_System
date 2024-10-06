@@ -1,0 +1,102 @@
+{
+    "_id": {
+        "$oid": "6702eea6b35b5b155df2ef30"
+    },
+    "close_t-3": {
+        "$numberDouble": "352.2298278808594"
+    },
+    "close": {
+        "$numberDouble": "345.700439453125"
+    },
+    "13EMA": {
+        "$numberDouble": "357.4034366408336"
+    },
+    "MACD": {
+        "$numberDouble": "-3.7484760306028306"
+    },
+    "close_t-1": {
+        "$numberDouble": "353.11212158203125"
+    },
+    "169EMA_Upper": {
+        "$numberDouble": "354.87661449665325"
+    },
+    "close_t-2": {
+        "$numberDouble": "350.9356689453125"
+    },
+    "open": {
+        "$numberDouble": "351.48465620495034"
+    },
+    "169EMA": {
+        "$numberDouble": "337.9777280920507"
+    },
+    "volume": {
+        "$numberInt": "76766000"
+    },
+    "8EMA": {
+        "$numberDouble": "354.31746483690927"
+    },
+    "169EMA_Lower": {
+        "$numberDouble": "321.0788416874482"
+    },
+    "high": {
+        "$numberDouble": "351.8179807045499"
+    },
+    "144EMA": {
+        "$numberDouble": "342.71888314796956"
+    },
+    "BodyDiff": {
+        "$numberDouble": "5.7842167518253405"
+    },
+    "atr": {
+        "$numberDouble": "4.0739363888045625"
+    },
+    "low": {
+        "$numberDouble": "343.44558493047697"
+    },
+    "MACD_HIST": {
+        "$numberDouble": "-2.2836144006294887"
+    },
+    "MACD_SIGNAL": {
+        "$numberDouble": "-1.464861629973342"
+    },
+    "CandleStickType_red": {
+        "$numberDouble": "1.0"
+    },
+    "Engulf_Alert_0": {
+        "$numberDouble": "0.0"
+    },
+    "Engulf_Alert_1": {
+        "$numberDouble": "0.0"
+    },
+    "dual_channel_Alert_0": {
+        "$numberDouble": "0.0"
+    },
+    "dual_channel_Alert_1": {
+        "$numberDouble": "0.0"
+    },
+    "382_Alert_1": {
+        "$numberDouble": "1.0"
+    },
+    "Incremental_High_1.0": {
+        "$numberDouble": "0.0"
+    },
+    "MACD_GOLDEN_CROSS_1.0": {
+        "$numberDouble": "0.0"
+    },
+    "MACD_Alert_0": {
+        "$numberDouble": "1.0"
+    },
+    "MACD_Alert_1": {
+        "$numberDouble": "0.0"
+    },
+    "timestamp": {
+        "$numberInt": "0"
+    },
+    "log_daily_return": {
+        "$numberDouble": "NaN"
+    },
+    "symbol": "QQQ",
+    "train": {
+        "$numberInt": "1"
+    }
+}

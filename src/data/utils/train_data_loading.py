@@ -2,6 +2,7 @@ import pymongo, os, sys
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import OneHotEncoder
+from pymongo import MongoClient
 
 class fetch_and_split_data:
     def __init__(self, 
@@ -63,7 +64,7 @@ class fetch_and_split_data:
             raise ValueError("Test data not available. Call split_data() first.")
 
 class prepare_data:
-    def __init__(self, symbol, data_pipeline_config, exclude_columns=None):
+    def __init__(self, symbol, data_pipeline_config, mongodb_config, exclude_columns=None):
         """
         Initializes the DataPreprocessor with the columns to exclude from log transformation.
 
@@ -74,7 +75,11 @@ class prepare_data:
         self.ohe = OneHotEncoder(drop='first')  # OneHotEncoder for categorical columns
         self.save_path = data_pipeline_config['make_train']['save_path']
         self.symbol = symbol
-
+        self.mongodb_config = mongodb_config
+        self.client =MongoClient(self.mongodb_config['url'])
+        self.db = self.client[self.mongodb_config['db_name']]
+        self.collection = self.mongodb_config['train_data_repository_collection_name']
+        self.batch = []
     def preprocess(self, df, train=True):
         """
         Preprocess the dataframe by performing the following steps:
@@ -122,8 +127,18 @@ class prepare_data:
         # Create target variable
         df = self.create_target(df)
         
-        # Save the prepared data for model training
-        self.save_data(df, self.save_path)
+        # Store to MongoDB
+        for record in df.to_dict(orient='records'):
+            # Add symbol and train flag
+            record['symbol'] = self.symbol
+            record['train'] = 1 if train else 0
+            
+            # Batch insert
+            self.batch.append(record)
+            if len(self.batch) == len(df):
+                self.db[self.collection].insert_many(self.batch)
+                print(f"Inserted {len(self.batch)} records into {self.collection}")
+                self.batch = []
         
         return df
     
@@ -132,8 +147,3 @@ class prepare_data:
         df['log_daily_return'] = np.log(df.close.pct_change() + 1)
         
         return df
-    
-    def save_data(self, df, file_path):
-        """Saves the preprocessed dataframe to a CSV file."""
-        file_path = os.path.join(file_path, self.filename)
-        df.to_parquet(file_path, index=False)

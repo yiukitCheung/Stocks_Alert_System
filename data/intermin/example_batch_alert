@@ -1,0 +1,20 @@
+{
+    "date": {
+        "$date": {
+            "$numberLong": "1728044700000"
+        }
+    },
+    "symbol": "QQQ",
+    "interval": "5m",
+    "_id": {
+        "$oid": "6700cf071f3b150689b65a10"
+    },
+    "support": {
+        "$numberDouble": "484.0"
+    },
+    "datetime": {
+        "$date": {
+            "$numberLong": "1728044700000"
+        }
+    }
+}
