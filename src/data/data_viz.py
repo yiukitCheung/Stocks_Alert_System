@@ -3,30 +3,28 @@ import pymongo
 import plotly.graph_objects as go
 import plotly.subplots as sp
 import streamlit as st
-from utils.alert_strategy import Alert
 from utils.trading_strategy import TradingStrategy
-from utils.features_engineering import add_features
 import time, os, sys
 
 # MongoDB Configuration
 DB_NAME = st.secrets['db_name']
-COLLECTION_NAME = f'{st.secrets.warehouse_interval[0]}_data'
+PROCESSED_COLLECTION_NAME = st.secrets.processed_collection_name
 STREAMING_COLLECTIONS = [f'{interval}_stock_datastream' for interval in st.secrets.streaming_interval]
 LIVE_ALERT_COLLECTION = st.secrets.live
 BATCH_ALERT_COLLECTION = st.secrets.batch
 DESIRED_STREAMING_INTERVAL = st.secrets.streaming_interval
 
-def connect_to_mongo(db_name=DB_NAME, collection_name=COLLECTION_NAME):
+def connect_to_mongo(db_name=DB_NAME):
     client = pymongo.MongoClient(**st.secrets["mongo"])
-    return client[db_name][collection_name]
+    return client[db_name]
 
 def fetch_stock_data(collection, stock_symbol):
-    return pd.DataFrame(list(collection.find({"symbol": stock_symbol}, {"_id": 0})))
-
-@st.cache_data
-def add_technical_features(filtered_df):
-    filtered_df = add_features(filtered_df).apply()
-    return Alert(filtered_df).add_alert()
+    warehouse_interval = st.secrets.warehouse_interval
+    if not warehouse_interval:
+        raise ValueError("warehouse_interval is empty in st.secrets")
+    return pd.DataFrame(list(collection.find({"symbol": stock_symbol,
+                                            "interval": warehouse_interval[0]}, 
+                                            {"_id": 0}))).sort_values(by=['date'])
 
 @st.cache_data
 def execute_trades(filtered_df):
@@ -118,15 +116,14 @@ def static_analysis_page():
     st.title("Stock Analysis Dashboard")
     st.sidebar.header("Stock Selector")
     
-    collection = connect_to_mongo()
-    stock_selector = st.sidebar.selectbox('Select Stock', options=sorted(collection.distinct("symbol")), index=0)
+    processed_collection = connect_to_mongo()[PROCESSED_COLLECTION_NAME]
+    stock_selector = st.sidebar.selectbox('Select Stock', options=sorted(processed_collection.distinct("symbol")), index=0)
     
-    filtered_df = fetch_stock_data(collection, stock_selector).sort_values(by=['date'])
-    filtered_df = add_technical_features(filtered_df)
-    filtered_trades = execute_trades(filtered_df)
+    processed_df = fetch_stock_data(processed_collection, stock_selector)
+    filtered_trades = execute_trades(processed_df)
     
     show_macd = st.sidebar.checkbox("Show MACD", value=False)
-    fig = create_figure(filtered_df, filtered_trades, show_macd)
+    fig = create_figure(processed_df, filtered_trades,show_macd)
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -204,11 +201,12 @@ def live_alert_page():
     
     chart_placeholders = {interval: st.empty() for interval in DESIRED_STREAMING_INTERVAL}
     def update_chart(interval):
+        # Fetch the data from MongoDB
         selected_topic = f"{interval}_stock_datastream"
         filtered_query = fetch_data(db, selected_topic, stock_selector, current_date)
         filtered_live_alerts_query = fetch_alerts(db, LIVE_ALERT_COLLECTION, stock_selector, interval, current_date, alert_type=["bullish_engulfer","bearish_engulfer","bullish_382"])
         filtered_batch_alerts_query = fetch_alerts(db, BATCH_ALERT_COLLECTION, stock_selector, interval, current_date)
-        
+        # Convert the query results to a DataFrame
         filtered_df = pd.DataFrame(list(filtered_query))
         filtered_live_alerts = pd.DataFrame(list(filtered_live_alerts_query))
         filtered_batch_alerts = pd.DataFrame(list(filtered_batch_alerts_query))

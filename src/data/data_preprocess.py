@@ -63,6 +63,7 @@ class DataPreprocess:
             if isinstance(record["timestamp"], pd.Timestamp):
                 record["timestamp"] = record["timestamp"].to_pydatetime()
             # Add the record to the batch list
+            print(record['timestamp'])
             self.batch.append(record)
             # If the batch size is greater than the DataFrame size, insert the records into the collection
             if len(self.batch) >= len(df):
@@ -71,10 +72,12 @@ class DataPreprocess:
                 self.batch = []
 
     def run(self):
+        
         for collection in self.collection_name:
-            print(collection)
+            
             all_symbols = self.db[collection].distinct('symbol')
             total_symbols = len(all_symbols)
+            
             added_technical = 0
             for symbol in all_symbols:
                 logging.info(f"Processing symbol {symbol}...")
@@ -84,8 +87,7 @@ class DataPreprocess:
                 # Check latest record in the technical collection
                 latest_record = self.db[self.tech_collection_name]\
                     .find_one({"symbol": symbol, "interval": collection.split("_")[0]}, 
-                            sort=[('timestamp', pymongo.DESCENDING)])  
-                
+                            sort=[('timestamp', pymongo.DESCENDING)])
                 if latest_record:
                     last_date_in_db = latest_record['date']
                     # Check if the data is up to date
@@ -100,7 +102,6 @@ class DataPreprocess:
                     self.insert_technical_data(symbol, new_records, collection.split("_")[0])
                     added_technical += 1
                     logging.info(f"{(added_technical/total_symbols) * 100:.2f}% Technical data added successfully for {symbol}!")
-
 
 # Example usage
 if __name__ == "__main__":
