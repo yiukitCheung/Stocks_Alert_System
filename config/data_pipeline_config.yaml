@@ -1,0 +1,5 @@
+data_pipeline:
+  data_ingest:
+    desried_symbols: ["QQQ", "SPY", "SOXX", "DJIA", "IWM","NVDA", "AAPL", "TSLA", "MSFT", "AMZN"]
+  make_train:
+    save_path: "train_data_repository"

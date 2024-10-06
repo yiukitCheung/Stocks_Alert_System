@@ -1,16 +1,17 @@
-import pymongo, os
-
+import pymongo, os, sys
 import pandas as pd
 import numpy as np
-
 from sklearn.preprocessing import OneHotEncoder
+# Add project root to sys.path dynamically
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+from config.mongodb_config import load_mongo_config
+from config.data_pipeline_config import load_pipeline_config
 
 class fetch_and_split_data:
     def __init__(self, 
-                symbol, 
-                db_name = "local", 
-                collection_name = "technical_stock_data", 
-                mongo_uri="mongodb://localhost:27017/"):
+                symbol:list, 
+                mongodb_config = load_pipeline_config(),
+                data_pipeline_config = load_pipeline_config()):
         """
         Initializes the MongoDB connection and prepares the collection for the stock data.
 
@@ -20,10 +21,10 @@ class fetch_and_split_data:
             symbol (str): The stock symbol to filter the data (e.g., 'NVDA').
             mongo_uri (str): MongoDB connection URI (default is localhost).
         """
-        self.mongo_uri = mongo_uri
-        self.client = pymongo.MongoClient(self.mongo_uri)
-        self.db = self.client[db_name]
-        self.collection = self.db[collection_name]
+        self.client = pymongo.MongoClient(mongodb_config['url'])
+        self.db = self.client[load_mongo_config()['db_name']]
+        self.collection = mongodb_config['process_collection_name']
+        self.save_path = data_pipeline_config['make_train']['save_path']
         self.symbol = symbol
         self.df = None
         self.df_test = None
@@ -92,7 +93,7 @@ class prepare_data:
         Returns:
             pd.DataFrame: The preprocessed dataframe.
         """
-        self.filename = 'train_data.parquet' if train else 'test_data.parquet'
+        self.filename = '{self.symbol}_train_data.parquet' if train else '{self.symbol}_test_data.parquet'
 
         # Step 1: Drop 'date' column and handle missing values
         df = df.drop(columns=['date'], errors='ignore')  # Avoids error if 'date' is missing
@@ -125,7 +126,7 @@ class prepare_data:
         df = self.create_target(df)
         
         # Save the prepared data for model training
-        self.save_data(df, '/Users/yiukitcheung/Documents/Projects/Stocks/train_data_repository')
+        self.save_data(df, self.save_path)
         
         return df
     
