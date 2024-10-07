@@ -1,6 +1,7 @@
 from data_extract import StockDataExtractor
 from data_ingest import StockDataIngestor
 from data_preprocess import DataPreprocess
+from make_train import MakeTrainTestData
 from datastream_transform import DataStreamProcess
 import sys, os
 # Add project root to sys.path dynamically
@@ -10,36 +11,67 @@ from config.kafka_config import load_kafka_config
 from config.data_pipeline_config import load_pipeline_config
 
 def main():
-    # Load the MongoDB configuration once
+    # Load the MongoDB, Kafka, and data pipeline configuration
     mongo_config = load_mongo_config()
-    mongo_url = mongo_config['url']
-    db_name = mongo_config["db_name"]
-    warehouse_interval = mongo_config["warehouse_interval"]
-    warehouse_topics = [f"{interval}_data" for interval in warehouse_interval]
-
-    # Kafka configuration
+    data_pipeline_config = load_pipeline_config()
     kafka_config = load_kafka_config()
     
-    ingestor = StockDataIngestor(schedule_time=None, 
-                                kafka_config=kafka_config, 
-                                mongo_config=mongo_config)
-    ingestor.schedule_data_data_consumption()
-
-    extractor = StockDataExtractor(mongo_url=mongo_url, 
-                                db_name=db_name, 
-                                collection_name=warehouse_topics)
-    extractor.run()
-
-    dp = DataPreprocess(mongo_uri=mongo_url, 
+    # Extract the MongoDB configuration
+    mongo_url = mongo_config['url']
+    db_name = mongo_config["db_name"]
+    
+    # Extract the streaming and warehouse interval
+    streaming_interval = mongo_config["streaming_interval"]
+    warehouse_interval = mongo_config["warehouse_interval"]
+    datastream_topics =  [f"{interval}_stock_datastream" for interval in mongo_config['streaming_interval']]
+    live_alert_collection = mongo_config['alert_collection_name']['live']
+    batch_alert_collection = mongo_config['alert_collection_name']['batch']
+    
+    # List of stock symbols
+    stock_symbols = load_pipeline_config()['data_ingest']['desried_symbols']
+    
+    # Initialize the StockDataExtractor
+    extractor = StockDataExtractor(symbols=stock_symbols,
+                                mongo_url=mongo_url,
+                                db_name=db_name,
+                                streaming_interval=streaming_interval,
+                                warehouse_interval=warehouse_interval,
+                                kafka_config=kafka_config)
+    
+    # Initialize the StockDataIngestor
+    ingestor = StockDataIngestor(schedule_time='15:00',
+                                mongo_url=mongo_url,
+                                db_name=db_name,
+                                topics=stock_symbols,
+                                kafka_config=kafka_config)
+    
+    # Initialize the DataPreprocess
+    collection_name = [f"{interval}_data" for interval in mongo_config["warehouse_interval"]]
+    processed_collection_name = mongo_config["process_collection_name"]
+    
+    pre_processor = DataPreprocess(mongo_uri=mongo_url, 
                         db_name=db_name, 
-                        collection_name=warehouse_topics, 
-                        tech_collection_name=mongo_config["process_collection_name"])
-    dp.run()
-
-    dsp = DataStreamProcess(mongo_uri=mongo_url, 
-                            db_name=db_name, 
-                            tech_collection_name=mongo_config["process_collection_name"])
-    dsp.run()
-
+                        collection_name=collection_name, 
+                        tech_collection_name=processed_collection_name)
+    
+    # Initialize the MakeTrainTestData
+    make_train_test = MakeTrainTestData(mongo_config=load_mongo_config, data_pipeline_config=data_pipeline_config)
+    
+    # Initalize the DataStreamProcess
+    datastream_live_process = DataStreamProcess(lookback=15, mongo_uri=mongo_url, 
+                                                db_name=db_name, 
+                                                kafka_config=kafka_config, 
+                                                datastream_topics=datastream_topics,
+                                                live_alert_collection=live_alert_collection,
+                                                batch_alert_collection=batch_alert_collection)
+    
+    # Run the data pipeline
+    extractor.start_scheduled_datastream_consuming()
+    ingestor.schedule_data_data_consumption()
+    pre_processor.run()    
+    make_train_test.run()
+    
+    datastream_live_process.fetch_and_transform_datastream()
+    
 if __name__ == "__main__":
     main()

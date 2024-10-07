@@ -154,28 +154,26 @@ class StockDataExtractor:
                     
     def start_scheduled_datastream_consuming(self):
         
-        while True:
-
-            trading = True
-            if pd.to_datetime('now').hour < 14:
-                # Schedule datastream consuming tasks for different intervals
-                for minute in range(5, 60, 5):
-                    schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)
-                for minute in range(15, 60, 15):
-                    schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)                
-                while trading:
-                    schedule.run_pending()
-                    time.sleep(60)
-                    if pd.to_datetime('now').hour >= 14:
-                        trading = False 
-            
+        trading = True
+        if pd.to_datetime('now').hour < 14:
+            # Schedule datastream consuming tasks for different intervals
+            for minute in range(5, 60, 5):
+                schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)
+            for minute in range(15, 60, 15):
+                schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)                
+            while trading:
+                schedule.run_pending()
+                time.sleep(60)
                 if pd.to_datetime('now').hour >= 14:
-                    logging.info("Trading hour is over!")
-                    time.sleep(5)
-                    # Consume and Ingest daily and weekly stock data
-                    self.fetch_and_produce_stock_data()
-                    logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
-                
+                    trading = False 
+        
+            if pd.to_datetime('now').hour >= 14:
+                logging.info("Trading hour is over!")
+                time.sleep(5)
+                # Consume and Ingest daily and weekly stock data
+                self.fetch_and_produce_stock_data()
+                logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
+
 if __name__ == "__main__": 
     # Load the MongoDB configuration
     mongo_url = load_mongo_config()['url']
