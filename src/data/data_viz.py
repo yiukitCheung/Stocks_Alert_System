@@ -214,7 +214,7 @@ def live_alert_page():
             filtered_df['datetime'] = pd.to_datetime(filtered_df['datetime'])
             filtered_df.set_index('datetime', inplace=True)
             candlestick_chart = plot_candlestick_chart(filtered_df, filtered_live_alerts, filtered_batch_alerts, stock_selector, interval)
-            chart_placeholders[interval].plotly_chart(candlestick_chart)
+            chart_placeholders[interval].plotly_chart(candlestick_chart, use_container_width=True)
         else:
             chart_placeholders[interval].write(f"No data available for {stock_selector} in {interval} interval")
             
