@@ -12,10 +12,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"
 from config.mongdb_config import load_mongo_config
 
 class DataPreprocess:
-    def __init__(self, mongo_uri, db_name, collection_name : list, tech_collection_name):
+    def __init__(self, mongo_url, db_name, collection_name : list, tech_collection_name):
     
         # Initialize the MongoDB client
-        self.client = pymongo.MongoClient(mongo_uri)
+        self.client = pymongo.MongoClient(mongo_url)
         self.db = self.client[db_name]
         
         # Set the collection names
@@ -55,21 +55,25 @@ class DataPreprocess:
     def insert_technical_data(self, symbol, df, interval):
         # Convert the DataFrame to a dictionary
         df_to_dict = df.to_dict(orient='records')
-        # Add the symbol and interval metadata to each record and insert into MongoDB
-        for record in df_to_dict:
-            record["symbol"] = symbol
-            record["interval"] = interval  # Add interval field
-            record["timestamp"] = pd.to_datetime(record["date"]).to_pydatetime()  # Convert to Python datetime
-            if isinstance(record["timestamp"], pd.Timestamp):
-                record["timestamp"] = record["timestamp"].to_pydatetime()
-            # Add the record to the batch list
-            print(record['timestamp'])
-            self.batch.append(record)
-            # If the batch size is greater than the DataFrame size, insert the records into the collection
-            if len(self.batch) >= len(df):
-                self.db[self.tech_collection_name].insert_many(self.batch)
-                logging.info(f"Inserted {len(self.batch)} records into {self.tech_collection_name} collection")
-                self.batch = []
+        
+        # Check for last record in the collection
+        last_record = self.db[self.tech_collection_name].find_one({"symbol": symbol, "interval": interval},
+                                                                sort=[('timestamp', pymongo.DESCENDING)])
+        if last_record:
+            last_date_in_db = last_record['date']
+            if last_date_in_db.strftime('%Y-%m-%d') == self.current_date:
+                logging.info(f"Data for {symbol} is up to date")
+                return
+            new_records_df = df[df['date'] > last_date_in_db]
+        else:
+            new_records_df = df
+
+        if not new_records_df.empty:
+            new_records_df["symbol"] = symbol
+            new_records_df["interval"] = interval
+            new_records_df["timestamp"] = pd.to_datetime(new_records_df["date"]).to_pydatetime()
+            self.db[self.tech_collection_name].insert_many(new_records_df.to_dict(orient='records'))
+            logging.info(f"Inserted {len(new_records_df)} records into {self.tech_collection_name} collection")
 
     def run(self):
         
@@ -111,7 +115,7 @@ if __name__ == "__main__":
     db_name = mongo_config["db_name"]
     collection_name = [f"{interval}_data" for interval in mongo_config["warehouse_interval"]]
     processed_collection_name = mongo_config["process_collection_name"]
-    dp = DataPreprocess(mongo_uri=mongo_url, 
+    dp = DataPreprocess(mongo_url=mongo_url, 
                         db_name=db_name, 
                         collection_name=collection_name, 
                         tech_collection_name=processed_collection_name)

@@ -1,5 +1,4 @@
-import streamlit
-from confluent_kafka import Consumer, KafkaException
+from confluent_kafka import Consumer
 import json, pandas as pd
 from utils.real_time_alert import CandlePattern
 from utils.batch_alert import trend_pattern
@@ -20,7 +19,7 @@ logging.basicConfig(
 )
 
 class DataStreamProcess:
-    def __init__(self, lookback, mongo_uri, db_name, kafka_config, 
+    def __init__(self, lookback, mongo_url, db_name, kafka_config, 
                 datastream_topics, live_alert_collection, batch_alert_collection):
         
         # Initialize the batch
@@ -33,7 +32,7 @@ class DataStreamProcess:
         self.pointer_b = 1
         
         # Initialize the MongoDB client
-        self.client = MongoClient(mongo_uri)
+        self.client = MongoClient(mongo_url)
         self.db = self.client[db_name]
         self.live_alert_collection = live_alert_collection
         self.batch_alert_collection = batch_alert_collection
@@ -54,7 +53,8 @@ class DataStreamProcess:
                 timeseries={
                     "timeField": "date",  
                     "metaField": "symbol",  
-                    "granularity": "hours"
+                    "granularity": "hours",
+                    "expireAfterSeconds": 60 * 60 * 24 * 10
                 }
             )
             logging.info(f"Time Series Collection {topic} created successfully")
@@ -94,7 +94,8 @@ class DataStreamProcess:
                 timeseries={
                     "timeField": "date",  
                     "metaField": "symbol",  
-                    "granularity": "hours"
+                    "granularity": "hours",
+                    "expireAfterSeconds": 60 * 60 * 24 * 10
                 }
             )
             logging.info(f"Time Series Collection {self.live_alert_collection} created successfully")
@@ -108,7 +109,8 @@ class DataStreamProcess:
 
         # Fetch the last record for the given symbol
         last_record = list(self.db[self.live_alert_collection].find({"symbol": symbol, 
-                                                            "interval": interval}).sort("date", DESCENDING).limit(1))
+                                                                    "interval": interval})\
+                                                                        .sort("date", DESCENDING).limit(1))
         
         # Ensure last_record[0]['date'] is timezone-aware
         if last_record:
@@ -133,7 +135,8 @@ class DataStreamProcess:
                 timeseries={
                     "timeField": "date",  
                     "metaField": "symbol",  
-                    "granularity": "hours"
+                    "granularity": "hours",
+                    "expireAfterSeconds": 60 * 60 * 24 * 10
                 }
             )
             logging.info(f"Time Series Collection {self.batch_alert_collection} created successfully")
@@ -158,6 +161,7 @@ class DataStreamProcess:
             value['date'] = value['date'].replace(tzinfo=timezone.utc)
             
         # Insert the new record if the collection is empty or the new date is greater than the last date
+        print(last_record[0]['date'], value['date'])
         if not last_record or last_record[0]['date'] < value['date']:
             self.db[self.batch_alert_collection].insert_one(value)
             logging.info(f"Inserted new record for {symbol} in {self.batch_alert_collection}")
@@ -271,7 +275,7 @@ class DataStreamProcess:
     def fetch_and_transform_datastream(self):
         self.consumer.subscribe(topics=self.datastream_topics)
         while True:
-            msg = self.consumer.poll(0.1)
+            msg = self.consumer.poll(1)
             if msg is None:
                 logging.info("No new messages")
                 continue
@@ -286,6 +290,7 @@ class DataStreamProcess:
             topic = msg.topic()
             interval = topic.split('_')[0]
             
+            logging.info(f"Processing symbol: {symbol} in interval: {interval} at {value['datetime']}")
             # Store the data in MongoDB
             self.store_datastream(symbol, value, topic)
             # Process the record
@@ -293,6 +298,7 @@ class DataStreamProcess:
             self.batch_process(symbol=symbol, records=value, interval=interval)
 
 if __name__ == '__main__':
+    
     # Load the MongoDB configuration
     mongo_db_config = load_mongo_config()
     url = mongo_db_config['url']
@@ -300,10 +306,11 @@ if __name__ == '__main__':
     datastream_topics =  [f"{interval}_stock_datastream" for interval in mongo_db_config['streaming_interval']]
     live_alert_collection = mongo_db_config['alert_collection_name']['live']
     batch_alert_collection = mongo_db_config['alert_collection_name']['batch']
+    
     # Load the Kafka configuration
     kafka_config = load_kafka_config()
     
-    datastream = DataStreamProcess(lookback=15, mongo_uri=url, 
+    datastream = DataStreamProcess(lookback=15, mongo_url=url, 
                                 db_name=db_name, 
                                 kafka_config=kafka_config, 
                                 datastream_topics=datastream_topics,

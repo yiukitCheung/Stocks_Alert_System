@@ -46,12 +46,3 @@ class TradingStrategy:
         if self.trades:
             return self.trades[-1]['total_asset']
         return 0
-
-# # Usage
-
-# strategy = TradingStrategy(testing_df)
-# strategy.execute_trades()
-# trades_df = strategy.get_trades()
-# total_return = strategy.get_total_return()
-
-# print(f"Technical Strategic Total Return: {total_return}")

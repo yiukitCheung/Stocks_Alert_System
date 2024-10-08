@@ -1,3 +1,4 @@
+import concurrent.futures
 from data_extract import StockDataExtractor
 from data_ingest import StockDataIngestor
 from data_preprocess import DataPreprocess
@@ -7,7 +8,7 @@ import sys, os
 # Add project root to sys.path dynamically
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from config.mongdb_config import load_mongo_config
-from config.kafka_config import load_kafka_config
+from config.kafka_config import load_kafka_config   
 from config.data_pipeline_config import load_pipeline_config
 
 def main():
@@ -49,7 +50,7 @@ def main():
     collection_name = [f"{interval}_data" for interval in mongo_config["warehouse_interval"]]
     processed_collection_name = mongo_config["process_collection_name"]
     
-    pre_processor = DataPreprocess(mongo_uri=mongo_url, 
+    pre_processor = DataPreprocess(mongo_url=mongo_url, 
                         db_name=db_name, 
                         collection_name=collection_name, 
                         tech_collection_name=processed_collection_name)
@@ -58,20 +59,28 @@ def main():
     make_train_test = MakeTrainTestData(mongo_config=load_mongo_config, data_pipeline_config=data_pipeline_config)
     
     # Initalize the DataStreamProcess
-    datastream_live_process = DataStreamProcess(lookback=15, mongo_uri=mongo_url, 
+    datastream_live_process = DataStreamProcess(lookback=15, mongo_url=mongo_url, 
                                                 db_name=db_name, 
                                                 kafka_config=kafka_config, 
                                                 datastream_topics=datastream_topics,
                                                 live_alert_collection=live_alert_collection,
                                                 batch_alert_collection=batch_alert_collection)
     
-    # Run the data pipeline
-    extractor.start_scheduled_datastream_consuming()
-    ingestor.schedule_data_data_consumption()
-    pre_processor.run()    
-    make_train_test.run()
-    
-    datastream_live_process.fetch_and_transform_datastream()
-    
+    # Execute functions in parallel and run the rest after extractor finishes
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Start the extractor, ingestor, and datastream_live_process in parallel
+        futures = [
+            executor.submit(datastream_live_process.fetch_and_transform_datastream()),
+            executor.submit(extractor.start_scheduled_datastream_consuming())
+            ]
+        # Wait for the extractor to finish
+        for future in concurrent.futures.as_completed(futures):
+            # Check if the completed future is the extractor
+            if future.result() is None:  # Assuming the extractor function doesn't return anything
+                # Extractor is done, so run the remaining steps
+                ingestor.schedule_data_data_consumption()
+                pre_processor.run()    
+                make_train_test.run()
+                break
 if __name__ == "__main__":
     main()

@@ -1,15 +1,18 @@
 from confluent_kafka import Producer, Consumer
+import confluent_kafka.admin
 import yfinance as yf
 import json, schedule, time
 import pandas as pd
 from pymongo import MongoClient, DESCENDING
 import traceback, logging
-import sys, os
+import sys, os, yaml
 # Add project root to sys.path dynamically
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from config.mongdb_config import load_mongo_config
 from config.kafka_config import load_kafka_config
 from config.data_pipeline_config import load_pipeline_config
+from confluent_kafka import admin
+import confluent_kafka
 
 # Configure logging
 logging.basicConfig(
@@ -20,13 +23,15 @@ logging.basicConfig(
 
 class StockDataExtractor:
     
-    def __init__(self,symbols,mongo_url,db_name,streaming_interval,warehouse_interval,kafka_config):
+    def __init__(self,symbols,mongo_url,db_name,streaming_interval,warehouse_interval,kafka_config,data_pipeline_config):
 
         # Set the class variables
         self.symbols = symbols
-        self.current_date = (pd.to_datetime("today")).strftime('%Y-%m-%d')
-        self.last_fetch = {symbol: {interval: None for interval in streaming_interval} for symbol in self.symbols}
+        self.current_date = pd.to_datetime("today")
+        self.last_fetch = {symbol: {interval: None for interval in streaming_interval} for symbol in self.symbols}        
         self.streaming_interval = streaming_interval
+        self.window_size = data_pipeline_config['data_extract']['window_size']
+        
         # Initialize the MongoDB client
         self.client = MongoClient(mongo_url)
         self.db = self.client[db_name]
@@ -38,13 +43,33 @@ class StockDataExtractor:
         self.producer = Producer(kafka_config)
         
         # Create Time Series Collection if it does not exist
-        self.create_collection_if_not_exists(self.warehouse_collection_name+self.streaming_collection_name)
-
+        self.create_collection_if_not_exists(self.streaming_collection_name, expireAfterSeconds=60*60*24*7)
+        self.create_collection_if_not_exists(self.warehouse_collection_name)
+        
+        # Create kafka topics
+        self.create_kafka_topic(self.streaming_collection_name)
+        
         # Collection to be stored in MongoDB
         self.warehouse_collection_dict = {collection_name: (self.db[collection_name], collection_name.split('_')[0]) for collection_name in self.warehouse_collection_name}
         self.streaming_collection_dict = {collection_name: (self.db[collection_name], collection_name.split('_')[0]) for collection_name in self.streaming_collection_name}    
+    
+    def create_kafka_topic(self, topics):
+        admin_client = confluent_kafka.admin.AdminClient(kafka_config)
+        new_topics = [confluent_kafka.admin.NewTopic(topic, num_partitions=6, replication_factor=3) for topic in topics]
+
+        # Create topics
+        fs = admin_client.create_topics(new_topics)
+
+        # Wait for each operation to finish
+        for topic, f in fs.items():
+            try:
+                f.result()  # The result itself is None
+                logging.info(f"Kafka topic {topic} created successfully")
+            except Exception as e:
+                logging.error(f"Failed to create topic {topic}: {e}")
+            time.sleep(3)
             
-    def create_collection_if_not_exists(self, collection_names: list):
+    def create_collection_if_not_exists(self, collection_names: list, expireAfterSeconds=None):
         
         for collection_name in collection_names:
             if collection_name not in self.db.list_collection_names():
@@ -55,7 +80,7 @@ class StockDataExtractor:
                         "metaField": "symbol",  
                         "granularity": "hours" if 'datastream' not in collection_name else "minutes"
                     },
-                    expireAfterSeconds= 60*60*24*365*5 if 'datastream' not in collection_name else None
+                    expireAfterSeconds= 60*60*24*7 if 'datastream' not in collection_name else None
                 )
                 logging.info(f"Time Series Collection {collection_name} created successfully")
                 time.sleep(3)
@@ -120,10 +145,12 @@ class StockDataExtractor:
                 try:
                     ticker = yf.Ticker(symbol)
                     
-                    start_date = self.last_fetch[symbol][interval] or self.current_date
+                    # Set the start date to prescribed window size
+                    start_date = self.current_date - pd.Timedelta(days=self.window_size) \
+                        if self.last_fetch is None or self.last_fetch[symbol][interval] is None \
+                            else self.last_fetch[symbol][interval]
                     # Fetch data from Yahoo Finance
                     data = ticker.history(start=start_date, interval=interval).reset_index()
-                    
                     # Produce data to Kafka
                     if not data.empty:
                         for _, record in data.iterrows():
@@ -143,38 +170,59 @@ class StockDataExtractor:
                             self.producer.produce(topic=topic_name, 
                                                     key=serialized_key,
                                                     value=serialized_record)
+                            # Log the success message
+                            logging.info(f"Data for {symbol} at {stock_record['datetime']} sent successfully to {interval} stock_datastream")
                         # Update the last fetch time
-                        self.last_fetch[symbol][interval] = pd.to_datetime('now')
+                        self.last_fetch[symbol][interval] =stock_record['datetime']
+                        
                         # Flush the producer after all messages have been sent
                         self.producer.flush()
-                        logging.info(f"Data for {symbol} until {stock_record['datetime']} sent successfully to {interval} stock_datastream")
+                        
                 except Exception as e:
                     logging.error(f"Error fetching data for {symbol}: {e}")
                     traceback.print_exc()
+                
+                # Write the last fetch record to data pipeline config
+                with open('config/data_pipeline_config.yaml', 'r') as f:
+                    config = yaml.safe_load(f) or {}
+                
+                if 'data_extract' not in config['data_pipeline']:
+                    config['data_pipeline']['data_extract'] = {}
+                
+                config['data_pipeline']['data_extract']['last_fetch_records'] = self.last_fetch
+                
+                with open('config/data_pipeline_config.yaml', 'w') as f:
+                    yaml.safe_dump(config, f)
                     
     def start_scheduled_datastream_consuming(self):
         
-        trading = True
-        if pd.to_datetime('now').hour < 14:
-            # Schedule datastream consuming tasks for different intervals
-            for minute in range(5, 60, 5):
-                schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)
-            for minute in range(15, 60, 15):
-                schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)                
-            while trading:
-                schedule.run_pending()
-                time.sleep(60)
-                if pd.to_datetime('now').hour >= 14:
-                    trading = False 
+        self.fetch_and_produce_datastream()
+        # trading = True
+        # if pd.to_datetime('now').hour < 14:
+        #     # Schedule datastream consuming tasks for different intervals
+        #     for minute in range(5, 60, 5):
+        #         schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)
+        #     for minute in range(15, 60, 15):
+        #         schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)                
+        #     while trading:
+        #         schedule.run_pending()
+        #         time.sleep(60)
+        #         if pd.to_datetime('now').hour >= 14:
+        #             trading = False 
         
-            if pd.to_datetime('now').hour >= 14:
-                logging.info("Trading hour is over!")
-                time.sleep(5)
-                # Consume and Ingest daily and weekly stock data
-                self.fetch_and_produce_stock_data()
-                logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
-
+        #     if pd.to_datetime('now').hour >= 14:
+        #         logging.info("Trading hour is over!")
+        #         time.sleep(5)
+        #         # Consume and Ingest daily and weekly stock data
+        #         self.fetch_and_produce_stock_data()
+        #         logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
+        # else:
+        #     logging.info("Trading hour is over! Wait for the next trading day")
+            
 if __name__ == "__main__": 
+    # Load Data Pipeline Configuration
+    data_pipeline_config = load_pipeline_config()
+    
     # Load the MongoDB configuration
     mongo_url = load_mongo_config()['url']
     db_name = load_mongo_config()["db_name"]
@@ -194,7 +242,8 @@ if __name__ == "__main__":
                                 db_name=db_name,
                                 streaming_interval=streaming_interval,
                                 warehouse_interval=warehouse_interval,
-                                kafka_config=kafka_config)
+                                kafka_config=kafka_config,
+                                data_pipeline_config=data_pipeline_config)
     
     extractor.start_scheduled_datastream_consuming()
 
