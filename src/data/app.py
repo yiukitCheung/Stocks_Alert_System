@@ -4,7 +4,7 @@ from data_ingest import StockDataIngestor
 from data_preprocess import DataPreprocess
 from make_train import MakeTrainTestData
 from datastream_transform import DataStreamProcess
-import sys, os
+import sys, os, datetime, time
 # Add project root to sys.path dynamically
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from config.mongdb_config import load_mongo_config
@@ -37,7 +37,8 @@ def main():
                                 db_name=db_name,
                                 streaming_interval=streaming_interval,
                                 warehouse_interval=warehouse_interval,
-                                kafka_config=kafka_config)
+                                kafka_config=kafka_config,
+                                data_pipeline_config=data_pipeline_config)
     
     # Initialize the StockDataIngestor
     ingestor = StockDataIngestor(schedule_time='15:00',
@@ -70,17 +71,30 @@ def main():
     with concurrent.futures.ThreadPoolExecutor() as executor:
         # Start the extractor, ingestor, and datastream_live_process in parallel
         futures = [
-            executor.submit(datastream_live_process.fetch_and_transform_datastream()),
-            executor.submit(extractor.start_scheduled_datastream_consuming())
+            executor.submit(datastream_live_process.run),
+            executor.submit(extractor.run)
+            
             ]
         # Wait for the extractor to finish
         for future in concurrent.futures.as_completed(futures):
             # Check if the completed future is the extractor
             if future.result() is None:  # Assuming the extractor function doesn't return anything
                 # Extractor is done, so run the remaining steps
-                ingestor.schedule_data_data_consumption()
+                ingestor.run()
                 pre_processor.run()    
                 make_train_test.run()
                 break
 if __name__ == "__main__":
-    main()
+    while True:
+        # Get the current time
+        current_time = datetime.datetime.now().time()
+        message_printed = False
+        # Check if the message has not been printed and print it once
+        if not message_printed:
+            print("Waiting for the time to reach 7:29 AM...")
+            message_printed = True 
+
+        # Check if the current time matches the target time (7:29:00 AM)
+        if current_time.hour >= 7:
+            main()
+        time.sleep(30)

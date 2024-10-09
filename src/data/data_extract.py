@@ -172,15 +172,19 @@ class StockDataExtractor:
                             if self.last_fetch[symbol][interval] is None \
                                 else self.last_fetch[symbol][interval]
                         # Increment the start date by one day to fetch today data
-                        start_date = (pd.to_datetime(start_date) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+                        start_date = (pd.to_datetime(start_date))
                     elif catch_up:
-                        start_date = self.current_date - pd.Timedelta(days=self.window_size[interval])
+                        start_date = self.current_date
+                        
                     # Fetch data from Yahoo Finance
+                    logging.info(start_date)
                     data = ticker.history(start=start_date, interval=interval).reset_index()
                     if self.reset:
                         data = data[pd.to_datetime(data['Datetime']) >= start_date]
                     elif not catch_up:
-                        data = data[pd.to_datetime(data['Datetime']) > self.last_fetch[symbol][interval]]
+                        # Fetch only the new data compared to the last fetch time
+                        last_fetch_time = pd.to_datetime(self.last_fetch[symbol][interval]).tz_localize('America/New_York')
+                        data = data[data['Datetime'] > last_fetch_time]
                         
                     # Produce data to Kafka
                     if not data.empty:
@@ -228,7 +232,7 @@ class StockDataExtractor:
         
     def run(self):
         
-        self.fetch_and_produce_datastream(catch_up=None)
+        self.fetch_and_produce_datastream(catch_up=False)
         trading = True
         if pd.to_datetime('now').hour < 14:
             # Schedule datastream consuming tasks for different intervals

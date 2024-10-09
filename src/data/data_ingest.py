@@ -94,7 +94,7 @@ class StockDataIngestor:
         except KeyboardInterrupt:
             logging.info("Closing consumer")
             
-    def schedule_data_data_consumption(self):
+    def run(self):
         if self.schedule_time:
             schedule.every().day.at(self.schedule_time).do(self.consume_kafka)
             logging.info(f"Scheduled fetching and producing stock data at {self.schedule_time}")
@@ -123,4 +123,4 @@ if __name__ == "__main__":
                                 topics=warehouse_topics,
                                 kafka_config=kafka_config)
     
-    ingestor.schedule_data_data_consumption()
+    ingestor.run()

@@ -235,7 +235,8 @@ class DataStreamProcess:
         
     def run(self):
         self.consumer.subscribe(topics=self.datastream_topics)
-        while True:
+        transforming = True
+        while transforming:
             msg = self.consumer.poll(0.1)
             if msg is None:
                 logging.info("No new messages")
@@ -253,7 +254,7 @@ class DataStreamProcess:
             
             logging.info(f"Processing symbol: {symbol} in interval: {interval} at {value['datetime']}")
             # Store the data in MongoDB
-            # self.store_datastream(symbol, value, topic)
+            self.store_datastream(symbol, value, topic)
             # Process the record
             self.streaming_process(value, interval)
             self.batch_process(symbol=symbol, records=value, interval=interval)

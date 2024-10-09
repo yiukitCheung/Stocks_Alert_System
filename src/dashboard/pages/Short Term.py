@@ -35,10 +35,12 @@ def fetch_data(db, collection_name, symbol):
     return db[collection_name].find(query)
 
 def fetch_alerts(db, collection_name, symbol, interval, alert_type=None):
-    query = {"symbol": symbol, "interval":interval}
+    query = {"symbol": symbol, "interval": interval}
     if alert_type:
         query["alert_type"] = {"$in": alert_type}
-    return db[collection_name].find(query)
+    
+    # Fetch the latest document by sorting 'datetime' in descending order
+    return db[collection_name].find(query, sort=[("datetime", -1)])
 
 def plot_candlestick_chart(filtered_df, filtered_live_alerts, filtered_batch_alerts, stock_selector, interval):
     
@@ -79,22 +81,85 @@ def plot_candlestick_chart(filtered_df, filtered_live_alerts, filtered_batch_ale
     #                 name=line_type.capitalize()
     #             ))
                 
-    candlestick_chart.update_layout(xaxis_rangeslider_visible=False,
-                                showlegend=False, 
-                                xaxis_type='category',
-                                title=f'{stock_selector} Candlestick Chart ({interval})',
-                                xaxis=dict(
-                                    showticklabels=False,
-                                    title='')
-                                )
+    candlestick_chart.update_layout(
+        xaxis_rangeslider_visible=False,
+        showlegend=False,
+        xaxis_type='category',
+        title={
+            'text': f'{stock_selector}',
+            'x': 0.5,  # Center the title
+            'xanchor': 'center',  # Anchor the title at the center
+            'yanchor': 'top',  # Anchor the title at the top
+            'font': {
+                'size': 24,  # Set the font size
+                'color': 'black',  # Set the font color
+                'family': 'Arial, sans-serif'  # Set the font family
+            }
+        },
+        xaxis=dict(
+            showticklabels=False,
+            title=''
+        )
+    )
     return candlestick_chart
 
+def plot_support_resistance_histogram(filtered_batch_alerts):
+    if 'support' in filtered_batch_alerts.columns or 'resistance' in filtered_batch_alerts.columns:
+        histogram_fig = go.Figure()
 
+        if 'support' in filtered_batch_alerts.columns:
+            histogram_fig.add_trace(go.Histogram(
+                x=filtered_batch_alerts['support'],
+                name='Support',
+                marker_color='blue',
+                opacity=0.5,
+                xbins=dict(size=0.5)
+            ))
+
+        if 'resistance' in filtered_batch_alerts.columns:
+            histogram_fig.add_trace(go.Histogram(
+                x=filtered_batch_alerts['resistance'],
+                name='Resistance',
+                marker_color='red',
+                opacity=0.5,
+                xbins=dict(size=0.5)
+            ))
+
+        histogram_fig.update_layout(
+            barmode='overlay',
+            xaxis_title='Price',
+            yaxis_title='Count',
+            showlegend=False,
+            title={
+            'text': 'Support/Resistance Levels Strength',
+            'x': 0.5,  # Center the title
+            'xanchor': 'center',  # Anchor the title at the center
+            'yanchor': 'top',  # Anchor the title at the top
+            'font': {
+                'size': 18,  # Set the font size
+                'color': 'black',  # Set the font color
+                'family': 'Arial, sans-serif'  # Set the font family
+            }
+            },
+            xaxis=dict(
+                showticklabels=True,
+                title='Price'
+            ),
+            yaxis=dict(
+                title='Strength'
+            )
+        )
+        st.plotly_chart(histogram_fig, use_container_width=True,showlegend=False)
+
+    else:
+        st.warning("No support/resistance data available for the selected interval and symbol.")
+            
 def update_charts(db, stock_selector, interval):
     # Prepare data for the selected stock and interval
     selected_topic = f"{interval}_stock_datastream"
     filtered_query = fetch_data(db, selected_topic, stock_selector)
-    filtered_live_alerts_query = fetch_alerts(db, LIVE_ALERT_COLLECTION, stock_selector, interval, alert_type=["bullish_engulfer", "bearish_engulfer", "bullish_382"])
+    filtered_live_alerts_query = fetch_alerts(db, LIVE_ALERT_COLLECTION, stock_selector, interval, 
+                                            alert_type=["bullish_engulfer", "bearish_engulfer", "bullish_382"])
     filtered_batch_alerts_query = fetch_alerts(db, BATCH_ALERT_COLLECTION, stock_selector, interval)
     
     # Convert the query results to a DataFrame
@@ -109,76 +174,66 @@ def update_charts(db, stock_selector, interval):
     else:
         st.warning("No data available for the selected interval and symbol.")
         return
-
     # Plot the Chart
     candlestick_chart = plot_candlestick_chart(filtered_df, filtered_live_alerts, filtered_batch_alerts, stock_selector, interval)
     # Display the chart
     st.plotly_chart(candlestick_chart, use_container_width=True)
-    if 'support' not in filtered_batch_alerts.columns and 'resistance' not in filtered_batch_alerts.columns:
-        st.warning("No support/resistance data available for the selected interval and symbol.")
-    elif ('support' not in filtered_batch_alerts.columns ) or ('resistance' not in filtered_batch_alerts.columns):
-        # Plot one histogram for the alerts
-        histogram_fig = go.Figure()
-        # Add support histogram
-        if not 'support' not in filtered_batch_alerts.columns:
-            histogram_fig.add_trace(go.Histogram(
-                x=filtered_batch_alerts['support'],
-                name='Support',
-                marker_color='blue',
-                opacity=0.5,
-                xbins=dict(size=0.5)  # Adjust bin width to be thinner
-            ))
-        # Add resistance histogram
-        if not 'resistance' not in filtered_batch_alerts.columns:
-            histogram_fig.add_trace(go.Histogram(
-                x=filtered_batch_alerts['resistance'],
-                name='Resistance',
-                marker_color='red',
-                opacity=0.5,
-                xbins=dict(size=0.5)  # Adjust bin width to be thinner
-            ))
-        # Update layout for better visualization
-        histogram_fig.update_layout(
-            barmode='overlay',
-            title='Support/ Resistance Histogram',
-            xaxis_title='Price',
-            yaxis_title='Count'
-        )
-        # Plot the combined histogram
-        st.plotly_chart(histogram_fig, use_container_width=True)    
-    
+    # Display the lastest alerts
+    if not filtered_live_alerts.empty:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            only_time = filtered_live_alerts['datetime'].dt.time
+            only_time = only_time.tail(1).values[0]
+            st.markdown(f"""
+            <div style="
+                text-align: center; 
+                font-size: 36px; 
+                font-weight: bold; 
+                color: #4CAF50; 
+                border: 2px solid #4CAF50; 
+                padding: 10px; 
+                border-radius: 10px;
+                background-color: #f0f0f0;
+            ">
+            {only_time}
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col2: 
+            alert_type = filtered_live_alerts['alert_type'].values[-1]
+            
+            # Determine the color and message based on the alert type
+            if alert_type == 'bullish_engulfer' or alert_type == 'bullish_382':
+                alert_message = f"{alert_type.replace('_', ' ').capitalize()} &#x1F7E2;"  # Green Circle Emoji
+                alert_color = "#4CAF50"  # Green color
+            elif alert_type == 'bearish_engulfer':
+                alert_message = f"{alert_type.replace('_', ' ').capitalize()} &#x1F534;"  # Red Circle Emoji
+                alert_color = "#FF5733"  # Red color
+            else:
+                alert_message = 'No Pattern Detected'
+                alert_color = "#000000"  # Default to black for unknown patterns
+
+            st.markdown(f"""
+            <div style="
+                text-align: center; 
+                font-size: 36px; 
+                font-weight: bold; 
+                color: {alert_color}; 
+                border: 2px solid {alert_color}; 
+                padding: 10px; 
+                border-radius: 10px;
+                background-color: #f9f9f9;
+            ">
+            {alert_message}
+            </div>
+            """, unsafe_allow_html=True)
     else:
-        # Combine histograms for support and resistance
-        histogram_fig = go.Figure()
-        # Add support histogram
-        histogram_fig.add_trace(go.Histogram(
-            x=filtered_batch_alerts['support'],
-            name='Support',
-            marker_color='green',
-            opacity=0.5,
-            xbins=dict(size=0.5)  # Adjust bin width to be thinner
-        ))
-
-        # Add resistance histogram
-        histogram_fig.add_trace(go.Histogram(
-            x=filtered_batch_alerts['resistance'],
-            name='Resistance',
-            marker_color='red',
-            opacity=0.5,
-            bingroup=10,
-            xbins=dict(size=0.5)  # Adjust bin width to be thinner
-        ))
-
-        # Update layout for better visualization
-        histogram_fig.update_layout(
-            barmode='overlay',
-            title='Support and Resistance Histogram',
-            xaxis_title='Price',
-            yaxis_title='Count'
-        )
-
-        # Plot the combined histogram
-        st.plotly_chart(histogram_fig, use_container_width=True)
+        st.warning("No live alerts available for the selected interval and symbol.")
+    # Display the support/resistance histogram
+    plot_support_resistance_histogram(filtered_batch_alerts)
+    
+            
 if __name__ == "__main__":
     # Set page config
     st.set_page_config(layout="wide")
