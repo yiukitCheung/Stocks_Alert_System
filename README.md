@@ -25,7 +25,7 @@ This project implements a **hybrid data pipeline** for streaming and batch proce
   - **Live Alerts**: The dashboard provides live alerts for the current trading day, displaying buy/sell signals generated in real-time based on the streaming stock data.
   
   The dashboard is designed for both real-time monitoring and retrospective analysis, allowing users to visually inspect the technical indicators, alerts, and outcomes of the trading strategy in an interactive way.
-  
+
 ### 5. Model Training (Upcoming)
 - **Model Pipeline**: A model pipeline is under development to train machine learning models on batch-processed stock data to predict future stock price movements.
 - **Model Storage**: Pre-trained models will be stored in `model_repository/`.
@@ -50,14 +50,18 @@ source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Run in the root dir
+python src/data/app.py
 ```
 
 ### Usage
 
-- **Streaming Alerts:**  Click the ready to use streamlit to check the live alert and 
+- **Streaming Alerts:**  Click the ready to use streamlit link to check the live alert of bullish or bearish signals in short term page; check the earning performance of impelmented strategy for each selected stock in long term page. 
 
 ### Future Work
 
 - **Model Training Integration:** The pipeline for training ML/DL models on stock data is currently under development.
 
 - **Improved Alert Logic:** Further improvements to alert strategies using more advanced pattern recognition and AI-based techniques.
+- **Complete the Dashboard:** Complete the dashboard to include a performance section that demonstrates strategy results based solely on the strategy rather than evaluating the strategy performance in each stock individually.

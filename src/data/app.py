@@ -89,13 +89,14 @@ if __name__ == "__main__":
     while True:
         # Get the current time
         current_time = datetime.datetime.now().time()
+        non_trading_hours = (current_time.hour >= 14 and current_time.minute >= 0 and current_time.second >= 0)
         message_printed = False
         # Check if the message has not been printed and print it once
-        if not message_printed:
+        if not message_printed or non_trading_hours:
             print("Waiting for the time to reach 7:29 AM...")
             message_printed = True 
-
         # Check if the current time matches the target time (7:29:00 AM)
-        if current_time.hour >= 7:
+        if (current_time.hour >= 7 and current_time.minute >= 29 and current_time.second >= 0) and not non_trading_hours:
             main()
+            
         time.sleep(30)
