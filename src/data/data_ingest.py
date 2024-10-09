@@ -36,7 +36,7 @@ class StockDataIngestor:
         # Initialize the Kafka consumer
         self.kafka_config = kafka_config
         self.kafka_config["group.id"] = "my-consumer-group"
-        self.kafka_config["auto.offset.reset"] = "earliest"
+        self.kafka_config["auto.offset.reset"] = "latest"
         self.consumer = Consumer(self.kafka_config)
         
     def insert_data(self, collection_name, data):
@@ -53,7 +53,7 @@ class StockDataIngestor:
         
         try:
             while True:
-                msg = self.consumer.poll(0.1)
+                msg = self.consumer.poll(1)
                 if msg is None:
                     # Insert any remaining records in the batch
                     if any(len(records) > 0 for records in batch.values()):
@@ -80,8 +80,8 @@ class StockDataIngestor:
                     collection_name = msg.topic() # Kafka Topic name = collection name in mongdb database
                     # Convert 'date' field to datetime
                     for record in records:
-                        if 'date' in record:
-                            record['date'] = datetime.strptime(record['date'], '%Y-%m-%d')
+                        if 'datetime' in record:
+                            record['datetime'] = datetime.strptime(record['datetime'], '%Y-%m-%d %H:%M:%S')
                     
                     # Append the records to the batch in the corresponding collection
                     batch[collection_name].extend(records)
@@ -112,7 +112,8 @@ if __name__ == "__main__":
     db_name = mongo_config["db_name"]
     warehouse_interval = mongo_config["warehouse_interval"]
     warehouse_topics = [f"{interval}_data" for interval in warehouse_interval]
-
+    streaming_topics = [f"{interval}_stock_datastream" for interval in mongo_config['streaming_interval']]
+                                                                                    
     # Kafka configuration
     kafka_config = load_kafka_config()
     

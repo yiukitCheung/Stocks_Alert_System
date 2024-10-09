@@ -3,7 +3,7 @@ import json, pandas as pd
 from utils.real_time_alert import CandlePattern
 from utils.batch_alert import trend_pattern
 import logging
-from pymongo import MongoClient, DESCENDING
+from pymongo import MongoClient, DESCENDING, IndexModel
 from datetime import datetime, timezone
 import os, sys
 # Add project root to sys.path dynamically
@@ -45,42 +45,31 @@ class DataStreamProcess:
         
         # Set the topic name 
         self.datastream_topics = datastream_topics
-        
-    def store_datastream(self, symbol, value, topic):
-        if topic not in self.db.list_collection_names():
+        # Create collections if they do not exist
+        self.create_time_series_collection(self.live_alert_collection)
+        self.create_time_series_collection(self.batch_alert_collection)
+
+    def create_time_series_collection(self, collection_name):
+        if collection_name not in self.db.list_collection_names():
             self.db.create_collection(
-                topic,
+                collection_name,
                 timeseries={
-                    "timeField": "date",  
+                    "timeField": "datetime",  
                     "metaField": "symbol",  
-                    "granularity": "hours",
-                    "expireAfterSeconds": 60 * 60 * 24 * 10
+                    "granularity": "hours"
                 }
             )
-            logging.info(f"Time Series Collection {topic} created successfully")
+            logging.info(f"Time Series Collection {collection_name} created successfully")
             
-        # Ensure the date is in datetime format and timezone-aware
-        value['datetime'] = pd.to_datetime(value['datetime']).tz_localize('UTC')
-
-        # Ensure the 'date' field is present and contains a valid BSON UTC datetime value
-        if 'date' not in value or not isinstance(value['date'], datetime):
-            value['date'] = value['datetime'].to_pydatetime()
-        # Fetch the last record for the given symbol
-        last_record = list(self.db[topic].find({"symbol": symbol}).sort("date", DESCENDING).limit(1))
+    def store_datastream(self, symbol, value, topic):
         
-        # Ensure last_record[0]['date'] is timezone-aware
-        if last_record:
-            if last_record[0]['date'].tzinfo is None:
-                last_record[0]['date'] = last_record[0]['date'].replace(tzinfo=timezone.utc)
-
-        # Ensure value['date'] is timezone-aware
-        if value['date'].tzinfo is None:
-            value['date'] = value['date'].replace(tzinfo=timezone.utc)
-            
+        # Ensure the date is in pandas datetime format for comparsion
+        value['datetime'] = pd.to_datetime(value['datetime'])   
+        # Fetch the last record for the given symbol
+        last_record = list(self.db[topic].find({"symbol": symbol}).sort("datetime", DESCENDING).limit(1))
         # Insert tprint(last_record)he new record if the collection is empty or the new date is greater than the last date
-        logging.info(f"Last record: {last_record} | Value: {value['date']}")
-        if not last_record or last_record[0]['date'] < value['date']:
-            
+        logging.info(f"Last record: {last_record} | Value: {value['datetime']}")
+        if not last_record or last_record[0]['datetime'] < value['datetime']:
             self.db[topic].insert_one(value)
             logging.info(f"Inserted new record for {symbol} in {topic}")
         else:
@@ -88,24 +77,9 @@ class DataStreamProcess:
             
     def store_live_alert(self,symbol,value,interval):
         
-        if self.live_alert_collection not in self.db.list_collection_names():
-            self.db.create_collection(
-                "stock_live_alert",
-                timeseries={
-                    "timeField": "date",  
-                    "metaField": "symbol",  
-                    "granularity": "hours",
-                    "expireAfterSeconds": 60 * 60 * 24 * 10
-                }
-            )
-            logging.info(f"Time Series Collection {self.live_alert_collection} created successfully")
-        
+
         # Ensure the date is in datetime format
         value['datetime'] = pd.to_datetime(value['datetime'])
-
-        # Ensure the 'date' field is present and contains a valid BSON UTC datetime value
-        if 'date' not in value or not isinstance(value['datetime'], datetime):
-            value['date'] = value['datetime'].to_pydatetime()
 
         # Fetch the last record for the given symbol
         last_record = list(self.db[self.live_alert_collection].find({"symbol": symbol, 
@@ -114,55 +88,42 @@ class DataStreamProcess:
         
         # Ensure last_record[0]['date'] is timezone-aware
         if last_record:
-            if last_record[0]['date'].tzinfo is None:
-                last_record[0]['date'] = last_record[0]['date'].replace(tzinfo=timezone.utc)
+            if last_record[0]['datetime'].tzinfo is None:
+                last_record[0]['datetime'] = last_record[0]['datetime'].replace(tzinfo=timezone.utc)
 
         # Ensure value['date'] is timezone-aware
-        if value['date'].tzinfo is None:
-            value['date'] = value['date'].replace(tzinfo=timezone.utc)
+        if value['datetime'].tzinfo is None:
+            value['datetime'] = value['datetime'].replace(tzinfo=timezone.utc)
             
         # Insert the new record if the collection is empty or the new date is greater than the last date
-        if not last_record or last_record[0]['date'] < value['date']:
+        if not last_record or last_record[0]['datetime'] < value['datetime']:
             self.db[self.live_alert_collection].insert_one(value)
             logging.info(f"Inserted new record for {symbol} in {self.live_alert_collection}")
         else:
             logging.info(f"Record for {symbol} in {self.live_alert_collection} is not newer than the last record")
             
     def store_batch_alert(self,symbol,value):
-        if self.batch_alert_collection not in self.db.list_collection_names():
-            self.db.create_collection(
-                self.batch_alert_collection,
-                timeseries={
-                    "timeField": "date",  
-                    "metaField": "symbol",  
-                    "granularity": "hours",
-                    "expireAfterSeconds": 60 * 60 * 24 * 10
-                }
-            )
-            logging.info(f"Time Series Collection {self.batch_alert_collection} created successfully")
         
         # Ensure the date is in datetime format
         value['datetime'] = pd.to_datetime(value['datetime'])
 
-        # Ensure the 'date' field is present and contains a valid BSON UTC datetime value
-        if 'date' not in value or not isinstance(value['datetime'], datetime):
-            value['date'] = value['datetime'].to_pydatetime()
-
         # Fetch the last record for the given symbol
-        last_record = list(self.db[self.batch_alert_collection].find({"symbol": symbol}).sort("date", DESCENDING).limit(1))
+        last_record = list(self.db[self.batch_alert_collection].find({"symbol": symbol}).sort("datetime", DESCENDING).limit(1))
         
         # Ensure last_record[0]['date'] is timezone-aware
         if last_record:
-            if last_record[0]['date'].tzinfo is None:
-                last_record[0]['date'] = last_record[0]['date'].replace(tzinfo=timezone.utc)
-
-        # Ensure value['date'] is timezone-aware
-        if value['date'].tzinfo is None:
-            value['date'] = value['date'].replace(tzinfo=timezone.utc)
-            
+            if last_record[0]['datetime'].tzinfo is None:
+                last_record[0]['datetime'] = last_record[0]['datetime'].replace(tzinfo=timezone.utc)
+                last_record[0]['datetime'] = pd.to_datetime(last_record[0]['datetime'])
+                
+            print(last_record[0]['datetime'], value['datetime'])
+                # Ensure value['datetime'] is timezone-aware
+                
+        if value['datetime'].tzinfo is None:
+            value['datetime'] = value['datetime'].replace(tzinfo=timezone.utc)
+        
         # Insert the new record if the collection is empty or the new date is greater than the last date
-        print(last_record[0]['date'], value['date'])
-        if not last_record or last_record[0]['date'] < value['date']:
+        if not last_record or last_record[0]['datetime'] < value['datetime']:
             self.db[self.batch_alert_collection].insert_one(value)
             logging.info(f"Inserted new record for {symbol} in {self.batch_alert_collection}")
         else:
@@ -272,10 +233,10 @@ class DataStreamProcess:
 
             break
         
-    def fetch_and_transform_datastream(self):
+    def run(self):
         self.consumer.subscribe(topics=self.datastream_topics)
         while True:
-            msg = self.consumer.poll(1)
+            msg = self.consumer.poll(0.1)
             if msg is None:
                 logging.info("No new messages")
                 continue
@@ -292,7 +253,7 @@ class DataStreamProcess:
             
             logging.info(f"Processing symbol: {symbol} in interval: {interval} at {value['datetime']}")
             # Store the data in MongoDB
-            self.store_datastream(symbol, value, topic)
+            # self.store_datastream(symbol, value, topic)
             # Process the record
             self.streaming_process(value, interval)
             self.batch_process(symbol=symbol, records=value, interval=interval)
@@ -317,4 +278,4 @@ if __name__ == '__main__':
                                 live_alert_collection=live_alert_collection,
                                 batch_alert_collection=batch_alert_collection)
     
-    datastream.fetch_and_transform_datastream()
+    datastream.run()
