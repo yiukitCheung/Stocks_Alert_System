@@ -115,8 +115,6 @@ class DataStreamProcess:
             if last_record[0]['datetime'].tzinfo is None:
                 last_record[0]['datetime'] = last_record[0]['datetime'].replace(tzinfo=timezone.utc)
                 last_record[0]['datetime'] = pd.to_datetime(last_record[0]['datetime'])
-                
-            print(last_record[0]['datetime'], value['datetime'])
                 # Ensure value['datetime'] is timezone-aware
                 
         if value['datetime'].tzinfo is None:
@@ -237,10 +235,17 @@ class DataStreamProcess:
         self.consumer.subscribe(topics=self.datastream_topics)
         transforming = True
         while transforming:
-            msg = self.consumer.poll(0.1)
+            msg = self.consumer.poll(1)
             if msg is None:
-                logging.info("No new messages")
-                continue
+                # Stop the loop if trading hours are over
+                if datetime.now().time() > datetime.strptime('14:05', '%H:%M').time():
+                    logging.info("Trading hours are over, Stopping the data stream process")
+                    transforming = False
+                    self.consumer.close()
+                    break
+                else:
+                    logging.info("No new messages")
+                    continue
             deseralize_msg = json.loads(msg.value().decode('utf-8'))
             if msg.error():
                 logging.error(f"Consumer error: {msg.error()}")
@@ -258,7 +263,8 @@ class DataStreamProcess:
             # Process the record
             self.streaming_process(value, interval)
             self.batch_process(symbol=symbol, records=value, interval=interval)
-
+            
+                
 if __name__ == '__main__':
     
     # Load the MongoDB configuration

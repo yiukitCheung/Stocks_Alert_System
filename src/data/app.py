@@ -41,7 +41,7 @@ def main():
                                 data_pipeline_config=data_pipeline_config)
     
     # Initialize the StockDataIngestor
-    ingestor = StockDataIngestor(schedule_time='15:00',
+    ingestor = StockDataIngestor(schedule_time=None,
                                 mongo_url=mongo_url,
                                 db_name=db_name,
                                 topics=stock_symbols,
@@ -57,7 +57,7 @@ def main():
                         tech_collection_name=processed_collection_name)
     
     # Initialize the MakeTrainTestData
-    make_train_test = MakeTrainTestData(mongo_config=load_mongo_config, data_pipeline_config=data_pipeline_config)
+    make_train_test = MakeTrainTestData(mongo_config=mongo_config, data_pipeline_config=data_pipeline_config)
     
     # Initalize the DataStreamProcess
     datastream_live_process = DataStreamProcess(lookback=15, mongo_url=mongo_url, 
@@ -84,6 +84,7 @@ def main():
                 pre_processor.run()    
                 make_train_test.run()
                 break
+            
 if __name__ == "__main__":
     while True:
         # Get the current time

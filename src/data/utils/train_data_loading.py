@@ -73,7 +73,6 @@ class prepare_data:
         """
         self.exclude_columns = exclude_columns if exclude_columns else ['MACD', 'MACD_SIGNAL', 'MACD_HIST']
         self.ohe = OneHotEncoder(drop='first')  # OneHotEncoder for categorical columns
-        self.save_path = data_pipeline_config['make_train']['save_path']
         self.symbol = symbol
         self.mongodb_config = mongodb_config
         self.client =MongoClient(self.mongodb_config['url'])

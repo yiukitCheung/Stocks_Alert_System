@@ -53,15 +53,13 @@ class DataPreprocess:
         return df
 
     def insert_technical_data(self, symbol, df, interval):
-        # Convert the DataFrame to a dictionary
-        df_to_dict = df.to_dict(orient='records')
-        
+
         # Check for last record in the collection
         last_record = self.db[self.tech_collection_name].find_one({"symbol": symbol, "interval": interval},
                                                                 sort=[('timestamp', pymongo.DESCENDING)])
         if last_record:
-            last_date_in_db = last_record['date']
-            if last_date_in_db.strftime('%Y-%m-%d') == self.current_date:
+            last_date_in_db = pd.to_datetime(last_record['date']).strftime('%Y-%m-%d')
+            if last_date_in_db == self.current_date:
                 logging.info(f"Data for {symbol} is up to date")
                 return
             new_records_df = df[df['date'] > last_date_in_db]
@@ -71,7 +69,7 @@ class DataPreprocess:
         if not new_records_df.empty:
             new_records_df["symbol"] = symbol
             new_records_df["interval"] = interval
-            new_records_df["timestamp"] = pd.to_datetime(new_records_df["date"]).to_pydatetime()
+            new_records_df["timestamp"] = pd.to_datetime(new_records_df["date"])
             self.db[self.tech_collection_name].insert_many(new_records_df.to_dict(orient='records'))
             logging.info(f"Inserted {len(new_records_df)} records into {self.tech_collection_name} collection")
 
@@ -93,11 +91,14 @@ class DataPreprocess:
                     .find_one({"symbol": symbol, "interval": collection.split("_")[0]}, 
                             sort=[('timestamp', pymongo.DESCENDING)])
                 if latest_record:
-                    last_date_in_db = latest_record['date']
+                    last_date_in_db = pd.to_datetime(latest_record['date'])
+                    current_date_dt = pd.to_datetime(self.current_date)
+                    
                     # Check if the data is up to date
-                    if last_date_in_db.strftime('%Y-%m-%d') == self.current_date:
+                    if last_date_in_db == current_date_dt:
                         logging.info(f"Data for {symbol} is up to date")
                         continue
+                    
                     new_records = processed_df[processed_df['date'] > last_date_in_db]
                 # If the symbol does not exist in the technical collection
                 else:

@@ -50,9 +50,15 @@ class StockDataIngestor:
         batch = {}
         batch = {interval: batch.get(interval, []) for interval in self.topics}                
         batch_size = 5000
-        
+        ingesting = True
         try:
-            while True:
+            while ingesting:
+
+                # Stops the consumer if trading is closed
+                if datetime.now().time() > datetime.strptime("14:10", "%H:%M").time():
+                    ingesting = False
+                    break
+                
                 msg = self.consumer.poll(1)
                 if msg is None:
                     # Insert any remaining records in the batch
@@ -65,7 +71,8 @@ class StockDataIngestor:
                             else:
                                 self.consumer.close()
                     else:
-                        logging.info("No new messages")
+                        # Wait for new messages
+                        logging.info("Waiting for ingesting data...")        
                         continue
                 else:
                     try:
@@ -90,7 +97,7 @@ class StockDataIngestor:
                         self.insert_data(collection_name, batch[collection_name])
                         logging.info(f"Inserted {len(batch[collection_name])} records into {collection_name}")
                         batch[collection_name] = []
-                
+                    
         except KeyboardInterrupt:
             logging.info("Closing consumer")
             
