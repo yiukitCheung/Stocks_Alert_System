@@ -34,15 +34,15 @@ def fetch_data(db, collection_name, symbol):
     query = {"symbol": symbol}
     return db[collection_name].find(query)
 
-def fetch_alerts(db, collection_name, symbol, interval, alert_type=None):
-    query = {"symbol": symbol, "interval": interval}
+def fetch_alerts(db, collection_name, symbol, interval, date, alert_type=None):
+    query = {"symbol": symbol, "interval": interval, "datetime": {"$gte": date}}
     if alert_type:
         query["alert_type"] = {"$in": alert_type}
     
     # Fetch the latest document by sorting 'datetime' in descending order
     return db[collection_name].find(query, sort=[("datetime", -1)])
 
-def plot_candlestick_chart(filtered_df, filtered_live_alerts, filtered_batch_alerts, stock_selector, interval):
+def plot_candlestick_chart(filtered_df, stock_selector, interval):
     
     candlestick_chart = go.Figure(data=[go.Candlestick(
         x=filtered_df.index.astype(str), 
@@ -99,7 +99,9 @@ def plot_candlestick_chart(filtered_df, filtered_live_alerts, filtered_batch_ale
         xaxis=dict(
             showticklabels=False,
             title=''
-        )
+        ),
+        width=1200,
+        height=700
     )
     return candlestick_chart
 
@@ -158,9 +160,9 @@ def update_charts(db, stock_selector, interval):
     # Prepare data for the selected stock and interval
     selected_topic = f"{interval}_stock_datastream"
     filtered_query = fetch_data(db, selected_topic, stock_selector)
-    filtered_live_alerts_query = fetch_alerts(db, LIVE_ALERT_COLLECTION, stock_selector, interval, 
+    filtered_live_alerts_query = fetch_alerts(db, LIVE_ALERT_COLLECTION, stock_selector, interval, date=pd.to_datetime('today'),
                                             alert_type=["bullish_engulfer", "bearish_engulfer", "bullish_382"])
-    filtered_batch_alerts_query = fetch_alerts(db, BATCH_ALERT_COLLECTION, stock_selector, interval)
+    filtered_batch_alerts_query = fetch_alerts(db, BATCH_ALERT_COLLECTION, stock_selector, interval,date=get_current_date())
     
     # Convert the query results to a DataFrame
     filtered_df = pd.DataFrame(list(filtered_query))
@@ -175,7 +177,7 @@ def update_charts(db, stock_selector, interval):
         st.warning("No data available for the selected interval and symbol.")
         return
     # Plot the Chart
-    candlestick_chart = plot_candlestick_chart(filtered_df, filtered_live_alerts, filtered_batch_alerts, stock_selector, interval)
+    candlestick_chart = plot_candlestick_chart(filtered_df, stock_selector, interval)
     # Display the chart
     st.plotly_chart(candlestick_chart, use_container_width=True)
     # Display the lastest alerts
@@ -196,7 +198,7 @@ def update_charts(db, stock_selector, interval):
                 border: 2px solid #4CAF50; 
                 padding: 10px; 
                 border-radius: 10px;
-                background-color: #f0f0f0;
+                background-color: #f9f9f9;
             ">
             {only_time}
             </div>
@@ -231,7 +233,40 @@ def update_charts(db, stock_selector, interval):
             </div>
             """, unsafe_allow_html=True)
     else:
-        st.warning("No live alerts available for the selected interval and symbol.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+                    st.markdown(f"""
+            <div style="
+                text-align: center; 
+                font-size: 36px; 
+                font-weight: bold; 
+                color: #808080; 
+                border: 2px solid #808080; 
+                padding: 10px; 
+                border-radius: 10px;
+                background-color: #f9f9f9;
+            ">
+            No Alert Time Available
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col2: 
+            st.markdown(f"""
+            <div style="
+                text-align: center; 
+                font-size: 36px; 
+                font-weight: bold; 
+                color: #808080;
+                border: 2px solid #808080; 
+                padding: 10px; 
+                border-radius: 10px;
+                background-color: #f9f9f9;
+            ">
+            No Alert Yet
+            </div>
+            """, unsafe_allow_html=True)
+            
     # Display the support/resistance histogram
     plot_support_resistance_histogram(filtered_batch_alerts)
     
@@ -246,7 +281,7 @@ if __name__ == "__main__":
     intervals = DESIRED_STREAMING_INTERVAL
     # Streamlit UI
     st.sidebar.header("Selector")
-    st.title('Live Alert Tracking Dashboard')
+    st.title(f'Live Alert Tracking Dashboard')
     stock_selector = st.sidebar.selectbox('Select Stock', options=options, index=0)
     intervals_selector = st.sidebar.selectbox('Select Interval', options=intervals, index=0)
     # Create a placeholder for the chart

@@ -36,7 +36,7 @@ class StockDataIngestor:
         # Initialize the Kafka consumer
         self.kafka_config = kafka_config
         self.kafka_config["group.id"] = "my-consumer-group"
-        self.kafka_config["auto.offset.reset"] = "latest"
+        self.kafka_config["auto.offset.reset"] = "earliest"
         self.consumer = Consumer(self.kafka_config)
         
     def insert_data(self, collection_name, data):
@@ -54,10 +54,10 @@ class StockDataIngestor:
         try:
             while ingesting:
                     
-                # # Stops the consumer if trading is closed
-                # if datetime.now().time() > datetime.strptime("14:10", "%H:%M").time():
-                #     ingesting = False
-                #     break
+                # Stops the consumer if trading is closed
+                if datetime.now().time() > datetime.strptime("14:10", "%H:%M").time():
+                    ingesting = False
+                    break
                 
                 msg = self.consumer.poll(1)
                 if msg is None:

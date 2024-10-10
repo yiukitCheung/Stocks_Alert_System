@@ -25,14 +25,18 @@ class StockDataExtractor:
     
     def __init__(self,symbols,mongo_url,db_name,streaming_interval,warehouse_interval,kafka_config,data_pipeline_config):
 
-        # Set the class variables
+        # Set the reset and catch up flags
         self.reset = data_pipeline_config['data_extract']['reset']
+        self.catch_up = data_pipeline_config['data_extract']['catch_up']
+        
+        # Set the class variables
         self.symbols = symbols
         self.current_date = pd.to_datetime("today")
         self.last_fetch = {symbol : {interval: None for interval in streaming_interval} for symbol in symbols} if self.reset else data_pipeline_config['data_extract']['last_fetch_records']
         self.streaming_interval = streaming_interval
         self.window_size = data_pipeline_config['data_extract']['window_size']
         self.expireAfterSeconds = data_pipeline_config['data_extract']['expireAfterSeconds']
+        
         # Initialize the MongoDB client
         self.client = MongoClient(mongo_url)
         self.db = self.client[db_name]
@@ -158,7 +162,7 @@ class StockDataExtractor:
                 # Check the last reocrd date in the symbol
                 logging.info(f"Fetching data for {symbol} completed!")
     
-    def fetch_and_produce_datastream(self,catch_up=False):
+    def fetch_and_produce_datastream(self):
         for topic_name, (_, interval) in self.streaming_collection_dict.items():
             for symbol in self.symbols:
                 try:
@@ -166,22 +170,21 @@ class StockDataExtractor:
                     if self.reset:
                         start_date = self.current_date - pd.Timedelta(days=self.window_size[interval]) 
                         start_date = pd.to_datetime(start_date).strftime('%Y-%m-%d')
-                    elif not catch_up:
+                    elif not self.catch_up:
                         # Set the start date to prescribed window size
                         start_date = self.current_date - pd.Timedelta(days=self.window_size[interval]) \
                             if self.last_fetch[symbol][interval] is None \
                                 else self.last_fetch[symbol][interval]
                         # Increment the start date by one day to fetch today data
                         start_date = (pd.to_datetime(start_date))
-                    elif catch_up:
-                        start_date = self.current_date
+                    elif self.catch_up:
+                        start_date = self.current_date - pd.Timedelta(days=self.window_size[interval]) 
                         
                     # Fetch data from Yahoo Finance
-                    logging.info(start_date)
                     data = ticker.history(start=start_date, interval=interval).reset_index()
                     if self.reset:
                         data = data[pd.to_datetime(data['Datetime']) >= start_date]
-                    elif not catch_up:
+                    elif not self.catch_up:
                         # Fetch only the new data compared to the last fetch time
                         last_fetch_time = pd.to_datetime(self.last_fetch[symbol][interval]).tz_localize('America/New_York')
                         data = data[data['Datetime'] > last_fetch_time]
@@ -228,33 +231,32 @@ class StockDataExtractor:
                     yaml.safe_dump(config, f)
                     
         # Set Catch up to False after the first fetch
-        catch_up = False
+        self.catch_up = False
         
     def run(self):
-        self.fetch_and_produce_stock_data()
-        # self.fetch_and_produce_datastream(catch_up=False)
-        # trading = True
-        # if pd.to_datetime('now').hour < 14:
-        #     # Schedule datastream consuming tasks for different intervals
-        #     for minute in range(5, 60, 5):
-        #         schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)
-        #     for minute in range(15, 60, 15):
-        #         schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)                
-        #     while trading:
-        #         schedule.run_pending()
-        #         time.sleep(60)
-        #         if pd.to_datetime('now').hour >= 14:
-        #             trading = False 
         
-        #     if pd.to_datetime('now').hour >= 14:
-        #         logging.info("Trading hour is over!")
-        #         time.sleep(5)
-        #         # Consume and Ingest daily and weekly stock data
-        #         self.fetch_and_produce_stock_data()
-        #         logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
-        # else:
-        #     logging.info("Trading hour is over! Wait for the next trading day")
-        #     time.sleep(1)
+        trading = True
+        if pd.to_datetime('now').hour < 14:
+            # Schedule datastream consuming tasks for different intervals
+            for minute in range(5, 60, 5):
+                schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)
+            for minute in range(15, 60, 15):
+                schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)                
+            while trading:
+                schedule.run_pending()
+                time.sleep(60)
+                if pd.to_datetime('now').hour >= 14:
+                    trading = False 
+        
+            if pd.to_datetime('now').hour >= 14:
+                logging.info("Trading hour is over!")
+                time.sleep(5)
+                # Consume and Ingest daily and weekly stock data
+                self.fetch_and_produce_stock_data()
+                logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
+        else:
+            logging.info("Trading hour is over! Wait for the next trading day")
+            time.sleep(1)
             
 if __name__ == "__main__": 
     # Load Data Pipeline Configuration

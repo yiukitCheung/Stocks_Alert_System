@@ -80,7 +80,7 @@ def main():
         for future in concurrent.futures.as_completed(futures):
             # Check if the completed future is the extractor
             if future.result() is None:  # Assuming the extractor function doesn't return anything
-                # Extractor is done, so run the remaining steps
+                # EL is done, so run the Transformation Steps
                 pre_processor.run()    
                 make_train_test.run()
                 break
