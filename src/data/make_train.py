@@ -32,6 +32,8 @@ class MakeTrainTestData:
             data_preparation.preprocess(test_df, train=False)
             print(f"{symbol} Data Saved to MongoDB Successfully")
 
+        return
+    
 if __name__ == "__main__":
     mongo_config = load_mongo_config()
     data_pipeline_config = load_pipeline_config()

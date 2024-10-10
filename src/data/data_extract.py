@@ -132,7 +132,7 @@ class StockDataExtractor:
                             continue
 
                     # Produce data to Kafka
-                    if not data.empty:
+                    if not data.empty: 
                         for _, record in data.iterrows():
                             stock_record = {
                                 'symbol': symbol,
@@ -231,30 +231,30 @@ class StockDataExtractor:
         catch_up = False
         
     def run(self):
+        self.fetch_and_produce_stock_data()
+        # self.fetch_and_produce_datastream(catch_up=False)
+        # trading = True
+        # if pd.to_datetime('now').hour < 14:
+        #     # Schedule datastream consuming tasks for different intervals
+        #     for minute in range(5, 60, 5):
+        #         schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)
+        #     for minute in range(15, 60, 15):
+        #         schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)                
+        #     while trading:
+        #         schedule.run_pending()
+        #         time.sleep(60)
+        #         if pd.to_datetime('now').hour >= 14:
+        #             trading = False 
         
-        self.fetch_and_produce_datastream(catch_up=False)
-        trading = True
-        if pd.to_datetime('now').hour < 14:
-            # Schedule datastream consuming tasks for different intervals
-            for minute in range(5, 60, 5):
-                schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)
-            for minute in range(15, 60, 15):
-                schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)                
-            while trading:
-                schedule.run_pending()
-                time.sleep(60)
-                if pd.to_datetime('now').hour >= 14:
-                    trading = False 
-        
-            if pd.to_datetime('now').hour >= 14:
-                logging.info("Trading hour is over!")
-                time.sleep(5)
-                # Consume and Ingest daily and weekly stock data
-                self.fetch_and_produce_stock_data()
-                logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
-        else:
-            logging.info("Trading hour is over! Wait for the next trading day")
-            time.sleep(1)
+        #     if pd.to_datetime('now').hour >= 14:
+        #         logging.info("Trading hour is over!")
+        #         time.sleep(5)
+        #         # Consume and Ingest daily and weekly stock data
+        #         self.fetch_and_produce_stock_data()
+        #         logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
+        # else:
+        #     logging.info("Trading hour is over! Wait for the next trading day")
+        #     time.sleep(1)
             
 if __name__ == "__main__": 
     # Load Data Pipeline Configuration

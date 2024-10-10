@@ -45,7 +45,7 @@ class StockDataIngestor:
         except Exception as e:
             logging.error(f"Error inserting data: {e}")
         
-    def consume_kafka(self):
+    def run(self):
         self.consumer.subscribe(topics=self.topics)
         batch = {}
         batch = {interval: batch.get(interval, []) for interval in self.topics}                
@@ -53,11 +53,11 @@ class StockDataIngestor:
         ingesting = True
         try:
             while ingesting:
-
-                # Stops the consumer if trading is closed
-                if datetime.now().time() > datetime.strptime("14:10", "%H:%M").time():
-                    ingesting = False
-                    break
+                    
+                # # Stops the consumer if trading is closed
+                # if datetime.now().time() > datetime.strptime("14:10", "%H:%M").time():
+                #     ingesting = False
+                #     break
                 
                 msg = self.consumer.poll(1)
                 if msg is None:
@@ -87,9 +87,11 @@ class StockDataIngestor:
                     collection_name = msg.topic() # Kafka Topic name = collection name in mongdb database
                     # Convert 'date' field to datetime
                     for record in records:
-                        if 'datetime' in record:
+                        if 'date' in record:
+                            record['date'] = datetime.strptime(record['date'], '%Y-%m-%d')
+                        elif 'datetime' in record:
                             record['datetime'] = datetime.strptime(record['datetime'], '%Y-%m-%d %H:%M:%S')
-                    
+                            
                     # Append the records to the batch in the corresponding collection
                     batch[collection_name].extend(records)
                     # Insert the batch into the database if it reaches the batch size for the collection
@@ -97,21 +99,10 @@ class StockDataIngestor:
                         self.insert_data(collection_name, batch[collection_name])
                         logging.info(f"Inserted {len(batch[collection_name])} records into {collection_name}")
                         batch[collection_name] = []
-                    
+    
         except KeyboardInterrupt:
             logging.info("Closing consumer")
             
-    def run(self):
-        if self.schedule_time:
-            schedule.every().day.at(self.schedule_time).do(self.consume_kafka)
-            logging.info(f"Scheduled fetching and producing stock data at {self.schedule_time}")
-
-            while True:
-                schedule.run_pending()
-                time.sleep(1)
-        else:
-            self.consume_kafka()
-
 if __name__ == "__main__": 
     # Load the MongoDB configuration once
     mongo_config = load_mongo_config()

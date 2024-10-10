@@ -4,7 +4,7 @@ from data_ingest import StockDataIngestor
 from data_preprocess import DataPreprocess
 from make_train import MakeTrainTestData
 from datastream_transform import DataStreamProcess
-import sys, os, datetime, time
+import sys, os, datetime, time, logging
 # Add project root to sys.path dynamically
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from config.mongdb_config import load_mongo_config
@@ -72,6 +72,7 @@ def main():
         # Start the extractor, ingestor, and datastream_live_process in parallel
         futures = [
             executor.submit(datastream_live_process.run),
+            executor.submit(ingestor.run),
             executor.submit(extractor.run)
             
             ]
@@ -80,23 +81,25 @@ def main():
             # Check if the completed future is the extractor
             if future.result() is None:  # Assuming the extractor function doesn't return anything
                 # Extractor is done, so run the remaining steps
-                ingestor.run()
                 pre_processor.run()    
                 make_train_test.run()
                 break
             
 if __name__ == "__main__":
+    # Initialize the flag outside the loop
+    message_printed = False
+
     while True:
         # Get the current time
         current_time = datetime.datetime.now().time()
         non_trading_hours = (current_time.hour >= 14 and current_time.minute >= 0 and current_time.second >= 0)
-        message_printed = False
+        
         # Check if the message has not been printed and print it once
-        if not message_printed or non_trading_hours:
+        if not message_printed:
             print("Waiting for the time to reach 7:29 AM...")
             message_printed = True 
-        # Check if the current time matches the target time (7:29:00 AM)
-        if (current_time.hour >= 7 and current_time.minute >= 29 and current_time.second >= 0) and not non_trading_hours:
-            main()
             
-        time.sleep(30)
+        elif (current_time.hour == 7 and current_time.minute == 29 and current_time.second == 0) and not non_trading_hours:
+            main()
+            logging.info(f"{current_time}: Data pipeline completed successfully!")
+    

@@ -1,9 +1,9 @@
 import pandas as pd
 import pymongo
 import plotly.graph_objects as go
-import plotly.subplots as sp
 import streamlit as st
 import os, sys
+import plotly.subplots as sp
 # Ensure the correct path to the 'data' directory
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'data'))
 from utils.trading_strategy import TradingStrategy
@@ -11,10 +11,6 @@ from utils.trading_strategy import TradingStrategy
 # MongoDB Configuration
 DB_NAME = st.secrets['db_name']
 PROCESSED_COLLECTION_NAME = st.secrets.processed_collection_name
-STREAMING_COLLECTIONS = [f'{interval}_stock_datastream' for interval in st.secrets.streaming_interval]
-LIVE_ALERT_COLLECTION = st.secrets.live
-BATCH_ALERT_COLLECTION = st.secrets.batch
-DESIRED_STREAMING_INTERVAL = st.secrets.streaming_interval
 
 def connect_to_mongo(db_name=DB_NAME):
     client = pymongo.MongoClient(**st.secrets["mongo"])
@@ -43,37 +39,68 @@ def compute_metrics(filtered_trades):
 
 def create_figure(filtered_df, filtered_trades, show_macd=False):
     win_trades, loss_trades, final_trade_profit_rate = compute_metrics(filtered_trades)
-    
     col1, col2, col3 = st.columns(3, gap='medium')
+
+    # CSS styling for metric containers
     st.markdown("""
         <style>
         .metric-container {
+            background-color: #f5f5f5;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
             display: flex;
             justify-content: center;
             align-items: center;
+            flex-direction: column;
+            text-align: center;
             height: 100%;
+        }
+        .metric-label {
+            font-weight: bold;
+            font-size: 24px;
+            margin: 0;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin-top: 8px;
         }
         </style>
     """, unsafe_allow_html=True)
-    
-    with col1:
-        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-        st.metric(label="Final Trade Profit", value=f"{final_trade_profit_rate}%")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-    with col2:
-        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-        st.metric(label="Win Trades", value=win_trades)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-    with col3:
-        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-        st.metric(label="Loss Trades", value=loss_trades)
-        st.markdown('</div>', unsafe_allow_html=True)
 
+    # Determine the color of the profit value based on its sign
+    profit_color = "green" if final_trade_profit_rate > 0 else "red"
+
+    with col1:
+        st.markdown(f"""
+            <div class="metric-container">
+                <h3 class="metric-label">Final Trade Profit</h3>
+                <p class="metric-value" style="color: {profit_color};">{final_trade_profit_rate}%</p>
+            </div>
+        """, unsafe_allow_html=True)
+            
+    with col2:
+        st.markdown(f"""
+            <div class="metric-container">
+                <h3 class="metric-label">Win Trades</h3>
+                <p class="metric-value" style="color: green;">{win_trades}</p>
+            </div>
+        """, unsafe_allow_html=True)
+            
+    with col3:
+        st.markdown(f"""
+            <div class="metric-container">
+                <h3 class="metric-label">Loss Trades</h3>
+                <p class="metric-value" style="color: red;">{loss_trades}</p>
+            </div>
+        """, unsafe_allow_html=True)
     row_height = [0.65, 0.15, 0.25] if show_macd else [0.8, 0.2]
     row = 3 if show_macd else 2
-    
+    # Calculate the date range for the last 6 months
+    end_date = filtered_df['date'].max()
+    start_date = end_date - pd.DateOffset(months=6)
+
     fig = sp.make_subplots(rows=row, cols=1, shared_xaxes=True, vertical_spacing=0.1, row_heights=row_height)
 
     fig.add_trace(go.Candlestick(
@@ -108,25 +135,41 @@ def create_figure(filtered_df, filtered_trades, show_macd=False):
     fig.add_trace(go.Scatter(x=filtered_trades['Exit_date'], y=filtered_trades['total_asset'], mode='lines', name='Profit', line=dict(color='green')), 
                 row=row, col=1)
 
-    fig.update_xaxes(title_text="Date", row=3, col=1)
+    fig.update_xaxes(range=[start_date, end_date],title_text="Date", row=3, col=1)
     fig.update_yaxes(title_text="Profit/Loss", row=3, col=1)
-    fig.update_layout(xaxis_rangeslider_visible=False, autosize=False, showlegend=False, height=800, width=1200)
+    fig.update_layout(xaxis_rangeslider_visible=False, autosize=False, showlegend=False, height=1000, width=1200)
 
     return fig
 
 def static_analysis_page():
+    # Set the page title and layout
+    st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
     st.title("Stock Analysis Dashboard")
-    st.sidebar.header("Stock Selector")
     
+    # Add a sidebar
+    st.sidebar.header("Stock Selector")
+    # Connect to MongoDB and fetch the processed collection
     processed_collection = connect_to_mongo()[PROCESSED_COLLECTION_NAME]
+    # Create a dropdown to select the stock
     stock_selector = st.sidebar.selectbox('Select Stock', options=sorted(processed_collection.distinct("symbol")), index=0)
     
-    processed_df = fetch_stock_data(processed_collection, stock_selector)
-    filtered_trades = execute_trades(processed_df)
-    
+    # Add an update button
+    if st.sidebar.button("Update Data"):
+        # Refetch the latest data when the button is clicked
+        processed_df = fetch_stock_data(processed_collection, stock_selector)
+        filtered_trades = execute_trades(processed_df)
+        st.success("Data updated successfully!")
+    else:
+        # Display the existing data if the button is not clicked
+        processed_df = fetch_stock_data(processed_collection, stock_selector)
+        filtered_trades = execute_trades(processed_df)
+        
+    # Add a checkbox to show the MACD
     show_macd = st.sidebar.checkbox("Show MACD", value=False)
-    fig = create_figure(processed_df, filtered_trades,show_macd)
-
+    
+    # Create the figure
+    fig = create_figure(processed_df, filtered_trades, show_macd)
     st.plotly_chart(fig, use_container_width=True)
+
 if __name__ == "__main__":
     static_analysis_page()

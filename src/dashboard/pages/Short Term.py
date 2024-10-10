@@ -183,8 +183,10 @@ def update_charts(db, stock_selector, interval):
         col1, col2 = st.columns(2)
         
         with col1:
-            only_time = filtered_live_alerts['datetime'].dt.time
+            
+            only_time = filtered_live_alerts['datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
             only_time = only_time.tail(1).values[0]
+                
             st.markdown(f"""
             <div style="
                 text-align: center; 
