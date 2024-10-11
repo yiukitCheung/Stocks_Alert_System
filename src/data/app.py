@@ -72,7 +72,6 @@ def main():
         # Start the extractor, ingestor, and datastream_live_process in parallel
         futures = [
             executor.submit(datastream_live_process.run),
-            executor.submit(ingestor.run),
             executor.submit(extractor.run)
             
             ]
@@ -81,8 +80,10 @@ def main():
             # Check if the completed future is the extractor
             if future.result() is None:  # Assuming the extractor function doesn't return anything
                 # EL is done, so run the Transformation Steps
+                ingestor.run()
                 pre_processor.run()    
                 make_train_test.run()
+                logging.info(f"{current_time}: Data pipeline completed successfully!")
                 break
             
 if __name__ == "__main__":
@@ -101,5 +102,5 @@ if __name__ == "__main__":
             
         elif (current_time.hour == 7 and current_time.minute == 29 and current_time.second == 0) and not non_trading_hours:
             main()
-            logging.info(f"{current_time}: Data pipeline completed successfully!")
+            
     

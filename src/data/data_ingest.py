@@ -68,8 +68,6 @@ class StockDataIngestor:
                                 self.insert_data(collection_name, records)
                                 logging.info(f"Inserted {len(records)} records into {collection_name}")
                                 batch[collection_name] = []
-                            else:
-                                self.consumer.close()
                     else:
                         # Wait for new messages
                         logging.info("Waiting for ingesting data...")        
@@ -99,7 +97,7 @@ class StockDataIngestor:
                         self.insert_data(collection_name, batch[collection_name])
                         logging.info(f"Inserted {len(batch[collection_name])} records into {collection_name}")
                         batch[collection_name] = []
-    
+
         except KeyboardInterrupt:
             logging.info("Closing consumer")
             
@@ -118,7 +116,7 @@ if __name__ == "__main__":
     ingestor = StockDataIngestor(schedule_time=None, 
                                 mongo_url=mongo_url, 
                                 db_name=db_name, 
-                                topics=warehouse_topics,
+                                topics=streaming_topics,
                                 kafka_config=kafka_config)
     
     ingestor.run()

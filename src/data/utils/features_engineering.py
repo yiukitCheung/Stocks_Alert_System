@@ -1,6 +1,5 @@
 import ta
 import numpy as np
-
 # Add bull and bear features in the dataframe
 class add_features:
     def __init__(self, df):
@@ -73,3 +72,4 @@ class add_features:
         self.df = self.df.iloc[-252*3:]
         
         return self.df
+            

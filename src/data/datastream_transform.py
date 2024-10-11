@@ -68,7 +68,7 @@ class DataStreamProcess:
         # Fetch the last record for the given symbol
         last_record = list(self.db[topic].find({"symbol": symbol}).sort("datetime", DESCENDING).limit(1))
         # Insert tprint(last_record)he new record if the collection is empty or the new date is greater than the last date
-        logging.info(f"Last record: {last_record} | Value: {value['datetime']}")
+        logging.info(f"Last record: {last_record} | Value: {value}")
         if not last_record or last_record[0]['datetime'] < value['datetime']:
             self.db[topic].insert_one(value)
             logging.info(f"Inserted new record for {symbol} in {topic}")
@@ -259,7 +259,7 @@ class DataStreamProcess:
             
             logging.info(f"Processing symbol: {symbol} in interval: {interval} at {value['datetime']}")
             # Store the data in MongoDB
-            self.store_datastream(symbol, value, topic)
+            # self.store_datastream(symbol, value, topic)
             # Process the record
             self.streaming_process(value, interval)
             self.batch_process(symbol=symbol, records=value, interval=interval)
