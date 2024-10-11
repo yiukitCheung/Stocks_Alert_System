@@ -237,13 +237,13 @@ class DataStreamProcess:
         while transforming:
             msg = self.consumer.poll(1)
             if msg is None:
-                # # Stop the loop if trading hours are over
-                # if datetime.now().time() > datetime.strptime('14:05', '%H:%M').time():
-                #     logging.info("Trading hours are over, Stopping the data stream process")
-                #     transforming = False
-                #     self.consumer.close()
-                    # break
-                # else:
+                # Stop the loop if trading hours are over
+                if datetime.now().time() > datetime.strptime('14:05', '%H:%M').time():
+                    logging.info("Trading hours are over, Stopping the data stream process")
+                    transforming = False
+                    self.consumer.close()
+                    break
+                else:
                     logging.info("No new messages")
                     continue
             deseralize_msg = json.loads(msg.value().decode('utf-8'))
