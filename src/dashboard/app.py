@@ -9,6 +9,7 @@ from pymongo import MongoClient, DESCENDING, ASCENDING
 DB_NAME = st.secrets['db_name']
 WAREHOUSE_INTERVAL = st.secrets.warehouse_interval
 WAREHOUSE_INTERVAL_COLLECTION = [f'{interval}_data' for interval in WAREHOUSE_INTERVAL]
+PROCESSED_COLLECTION = st.secrets.processed_collection_name
 
 @st.cache_resource
 def initialize_mongo_client(db_name=DB_NAME):
@@ -58,12 +59,135 @@ for symbol in ['QQQ','SPY']:
 st.plotly_chart(line_chart)
 
 col1, col2, col3 = st.columns(3)
+
 with col1:
+    
+    # Define the query to fetch stocks where the close price is above both the 13EMA and 169EMA for intervals 3D, 6D, and 13D
+    query = {
+        "date": {"$gte": pd.to_datetime("2024-10-11T00:00:00Z")},
+        "interval": {"$in": ["1D", "3D", "6D", "13D"]},
+        "$expr": {
+            "$and": [
+                {"$gt": ["$close", "$13EMA"]},
+                {"$gt": ["$close", "$169EMA"]}
+            ]
+        }
+    }
+
+    # Execute the query and project only the symbol field
+    results = initialize_mongo_client()[PROCESSED_COLLECTION].distinct("symbol", query)
+    
     st.subheader("Buy Signal")
-    st.write(np.random.choice(symbols, 2))
+    if not results:
+        st.write("No results found")
+    else:
+        # Display the symbols in a styled format
+        st.markdown("""
+            <style>
+                .buy-container {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 10px;
+                }
+                .buy-badge {
+                    background-color: #4CAF50;
+                    color: white;
+                    padding: 8px 12px;
+                    border-radius: 5px;
+                    font-size: 16px;
+                    text-align: center;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown('<div class="buy-container">', unsafe_allow_html=True)
+        for symbol in results:
+            st.markdown(f'<div class="buy-badge">{symbol}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
 with col2:
+# Define the query to fetch stocks where the close price is above both the 13EMA and 169EMA for intervals 3D, 6D, and 13D
+    query = {
+        "date": {"$gte": pd.to_datetime("2024-10-11T00:00:00Z")},
+        "interval": {"$in": ["1D","3D","6D", "13D"]},
+        "$expr": {
+            "$and": [
+                {"$lt": ["$close", "$13EMA"]},
+                {"$gt": ["$close", "$169EMA"]}
+            ]
+        }
+    }
+
+    # Execute the query and project only the symbol field
+    results = initialize_mongo_client()[PROCESSED_COLLECTION].distinct("symbol", query)
+    
     st.subheader("Hold Signal")
-    st.write(np.random.choice(symbols, 2))
+    if not results:
+        st.write("No results found")
+    else:
+        # Display the symbols in a styled format
+        st.markdown("""
+            <style>
+                .symbol-container {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 10px;
+                }
+                .symbol-badge {
+                    background-color: #A9A9A9;
+                    color: white;
+                    padding: 8px 12px;
+                    border-radius: 5px;
+                    font-size: 16px;
+                    text-align: center;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown('<div class="symbol-container">', unsafe_allow_html=True)
+        for symbol in results:
+            st.markdown(f'<div class="symbol-badge">{symbol}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
 with col3:
+    # Define the query to fetch stocks where the close price is above both the 13EMA and 169EMA for intervals 3D, 6D, and 13D
+    query = {
+        "date": {"$gte": pd.to_datetime("2024-10-11T00:00:00Z")},
+        "interval": {"$in": ["1D", "3D"]},
+        "$expr": {
+            "$or": [
+                {"$lt": ["$close", "$13EMA"]},
+                {"$lt": ["$close", "$169EMA"]}
+            ]
+        }
+    }
+
+    # Execute the query and project only the symbol field
+    results = initialize_mongo_client()[PROCESSED_COLLECTION].distinct("symbol", query)
     st.subheader("Sell Signal")
-    st.write(np.random.choice(symbols, 2))
+    if not results:
+        st.write("No results found")
+    else:
+        # Display the symbols in a styled format
+        st.markdown("""
+            <style>
+                .sell-container {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 10px;
+                }
+                .sell-badge {
+                    background-color: #FF0000;
+                    color: white;
+                    padding: 8px 12px;
+                    border-radius: 5px;
+                    font-size: 16px;
+                    text-align: center;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown('<div class="sell-container">', unsafe_allow_html=True)
+        for symbol in results:
+            st.markdown(f'<div class="sell-badge">{symbol}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
