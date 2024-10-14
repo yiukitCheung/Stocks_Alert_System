@@ -1,155 +1,115 @@
-class Alert:
-    
-    def __init__(self, df):
-        self.df = df.copy()
-        self.df['MACD_Alert'] = -1  
-        self.df['Engulf_Alert'] = -1 
-        self.df['dual_channel_Alert'] = -1  
-        self.df['382_Alert'] = -1  
+import pandas as pd
+
+class AddAlert:
+    def __init__(self, df, interval):
+        self.df = df[df['interval'] == interval].copy()
         self.window = 3  # Number of days to compare the stock price
-        
+        self.interval = interval
+
+        self.df[f'{self.interval}_MACD_Alert'] = -1  
+        self.df[f'{self.interval}_Engulf_Alert'] = -1 
+        self.df[f'{self.interval}_Hammer_Alert'] = -1
+        self.df[f'{self.interval}_Inverse_Hammer_Alert'] = -1
+
     def engulf_alert(self):
-        
-        # Previous Candle
         prev_open = self.df['open'].shift(1)
         prev_close = self.df['close'].shift(1)
-        
-        # Current Candle
         current_open = self.df['open']
         current_close = self.df['close']
 
-        # Bullish Engulfing: current green candle engulfs previous red candle
         bullish_engulfing = (
-            (prev_close < prev_open) &  # Previous candle was red
-            (current_close > current_open) &  # Current candle is green
+            (prev_close < prev_open) & 
+            (current_close > current_open) & 
             (current_open < prev_close) & 
             (current_close > prev_open)
         )
 
-        # Bearish Engulfing: current red candle engulfs previous green candle
         bearish_engulfing = (
-            (prev_close > prev_open) &  # Previous candle was green
-            (current_close < current_open) &  # Current candle is red
+            (prev_close > prev_open) & 
+            (current_close < current_open) & 
             (current_open > prev_close) & 
             (current_close < prev_open)
         )
 
-        # Apply the conditions to the DataFrame
-        self.df.loc[bullish_engulfing, 'Engulf_Alert'] = 1
-        self.df.loc[bearish_engulfing, 'Engulf_Alert'] = 0
-        
-        return self.df
+        self.df.loc[bullish_engulfing, f'{self.interval}_Engulf_Alert'] = 1
+        self.df.loc[bearish_engulfing, f'{self.interval}_Engulf_Alert'] = 0
 
     def macd_alert(self):
-        
-        # Pre-compute conditions
         macd_above_signal = self.df['MACD'] > self.df['MACD_SIGNAL']
         macd_increasing = self.df['MACD'].diff() > 0
         macd_below_zero = self.df['MACD'] >= 0
 
-        # Bullish condition
-        bullish_macd = (
-            macd_above_signal &
-            macd_increasing&
-            macd_below_zero
-        )
+        bullish_macd = macd_above_signal & macd_increasing & macd_below_zero
+        bearish_macd = (self.df['MACD'] < self.df['MACD_SIGNAL']) & (self.df['MACD'] > self.df['MACD'].shift(-1))
+
+        self.df.loc[bullish_macd, f'{self.interval}_MACD_Alert'] = 1
+        self.df.loc[bearish_macd, f'{self.interval}_MACD_Alert'] = 0
+
+    def ema_support_alert(self, ema_periods=[13,169], epsilon=0.05):
         
-        # Bearish condition
-        bearish_macd = (
-            (self.df['MACD'] < self.df['MACD_SIGNAL']) &
-            (self.df['MACD'] > self.df['MACD'].shift(-1))  
+        for ema_period in ema_periods:
+            ema_column = f'{ema_period}EMA'
+            self.df[f'{ema_period}EMA_Lower'] = self.df[ema_column] * (1 - epsilon)
+            self.df[f'{ema_period}EMA_Upper'] = self.df[ema_column] * (1 + epsilon)
+
+            self.df['inside_ema_band'] = (self.df['close'] > self.df[f'{ema_period}EMA_Lower']) & (self.df['close'] < self.df[f'{ema_period}EMA_Upper'])
+            self.df[f'{self.interval}_{ema_period}_recovery'] = 0
+            self.df[f'{self.interval}_{ema_period}_recover_failed'] = 0
+
+            for i in self.df.index:
+                if i + self.window < self.df.index[-1]:
+                    if self.df.loc[i+self.window, 'inside_ema_band']:
+                        future_prices = self.df.loc[i:i+self.window, 'close']
+                        if (future_prices > self.df.loc[i, f'{ema_period}EMA_Upper']).all():
+                            self.df.loc[i, f'{self.interval}_{ema_period}_recovery'] = 1
+                        if (future_prices < self.df.loc[i, ema_column]).all():
+                            self.df.loc[i, f'{self.interval}_{ema_period}_recover_failed'] = 1
+
+            self.df.drop(columns=[f'{ema_period}EMA_Lower', f'{ema_period}EMA_Upper', 'inside_ema_band'], inplace=True)
+
+    def hammer_alert(self):
+        self.df['body_size'] = abs(self.df['close'] - self.df['open'])
+        self.df['upper_shadow'] = self.df['high'] - self.df[['close', 'open']].max(axis=1)
+        self.df['lower_shadow'] = self.df[['close', 'open']].min(axis=1) - self.df['low']
+
+        is_hammer = (
+            (self.df['body_size'] <= (self.df['high'] - self.df['low']) * 0.3) & 
+            (self.df['lower_shadow'] >= (self.df['high'] - self.df['low']) * 0.7) & 
+            (self.df['upper_shadow'] <= (self.df['high'] - self.df['low']) * 0.1)
         )
 
-        # Apply the conditions to the DataFrame
-        self.df.loc[bullish_macd, 'MACD_Alert'] = 1
-        self.df.loc[bearish_macd, 'MACD_Alert'] = 0
+        inverse_hammer = (
+            (self.df['body_size'] <= (self.df['high'] - self.df['low']) * 0.3) & 
+            (self.df['upper_shadow'] >= (self.df['high'] - self.df['low']) * 0.7) & 
+            (self.df['lower_shadow'] <= (self.df['high'] - self.df['low']) * 0.1)
+        )
 
+        self.df.loc[is_hammer, f'{self.interval}_Hammer_Alert'] = 1
+        self.df.loc[inverse_hammer, f'{self.interval}_Inverse_Hammer_Alert'] = 0
+        
+        self.df.drop(columns=['body_size', 'upper_shadow', 'lower_shadow'], inplace=True)
+
+    def apply(self):
+        alert_methods = [
+            self.engulf_alert,
+            self.macd_alert,
+            self.ema_support_alert,
+            self.ema_support_alert,
+            self.hammer_alert
+        ]
+
+        for alert_method in alert_methods:
+            alert_method()
+
+        alert_columns = [
+            f'{self.interval}_MACD_Alert',
+            f'{self.interval}_Engulf_Alert',
+            f'{self.interval}_Hammer_Alert',
+            f'{self.interval}_Inverse_Hammer_Alert'
+        ]
+
+        ema_recovery_alert_columns = [f'{self.interval}_{ema_period}_recovery' for ema_period in [13, 169]]
+        ema_recovery_fail_alert_columns = [f'{self.interval}_{ema_period}_recover_failed' for ema_period in [13, 169]]
+        
+        self.df = self.df[['symbol', 'date'] + alert_columns + ema_recovery_alert_columns + ema_recovery_fail_alert_columns]
         return self.df
-
-    def dual_channel(self):
-        
-        # Confirm Technical Indicators Conditions
-        ema_8_gt_ema_13 = self.df['8EMA'] > self.df['13EMA']
-        ema_13_gt_ema_169 = self.df['13EMA'] > self.df['169EMA']
-        ema_8_gt_ema_144 = self.df['8EMA'] > self.df['144EMA']
-        
-        # Confirm Close price action
-        close_ge_ema_13 = self.df['close'] >= self.df['13EMA']
-        close_ge_ema_144 = self.df['close'] >= self.df['144EMA']
-        
-        # Confirm Candle fully above 13 EMA
-        low_ge_ema_13 = self.df['low'] >= self.df['13EMA'] 
-        green_candle = self.df['CandleStickType'] == 'green'    
-        
-        # Confirm Candle in selected range
-        open_in_slow_ema = self.df['open'].between(self.df['169EMA_Lower'], self.df['169EMA_Upper'])
-        
-        # Confirm Candle type
-        green_candle = self.df['CandleStickType'] == 'green'
-        
-        # Bullish Conditions
-        
-        bullish_scenario_1 = (
-            ema_8_gt_ema_13 & 
-            ema_13_gt_ema_169 & 
-            close_ge_ema_13 &
-            low_ge_ema_13 &
-            green_candle
-        )
-        
-        # Bearish Condition
-        bearish_scenario_1 = (
-            (self.df['open'] < self.df['13EMA']) &
-            (self.df['close'] < self.df['13EMA']) &
-            (self.df['13EMA'] < self.df['8EMA'])
-        )
-        # Bullish Conditions 2
-        bullish_scenario_2 = ( 
-            ema_8_gt_ema_144 &
-            ema_13_gt_ema_169 &
-            close_ge_ema_144 &
-            open_in_slow_ema &
-            green_candle
-            )
-        
-        # Bearish Condition 2
-        bearish_scenario_2 = (
-            (self.df['open'] < self.df['13EMA']) &
-            (self.df['close'] < self.df['13EMA']) &
-            (self.df['8EMA'] < self.df['13EMA']) &
-            ~ open_in_slow_ema
-        )
-
-        # Apply conditions on different price scenarios
-        
-        self.df.loc[bullish_scenario_1 | bullish_scenario_2, 'dual_channel_Alert'] = 1
-        self.df.loc[bearish_scenario_1 | bearish_scenario_2, 'dual_channel_Alert'] = 0
-        
-        return self.df
-
-    def bullish_382_alert(self):
-        # Calculate Fibonacci 38.2% retracement level
-        diff = self.df['high'] - self.df['low']
-        fib_382_level = self.df['high'] - 0.382 * diff
-        open_above_fib_382 = self.df['open'] > fib_382_level
-        
-        # Apply condition
-        self.df.loc[open_above_fib_382, '382_Alert'] = 1
-        self.df.loc[~open_above_fib_382, '382_Alert'] = 0
-        
-        return self.df
-
-    def add_alert(self):
-        self.engulf_alert()
-        self.macd_alert()
-        self.dual_channel()
-        self.bullish_382_alert()
-        return self.df
-    
-# # Apply the strategy
-# testing_df = Alert(testing_df).add_alert()
-
-# print(f"Bullish MACD Count: {len(testing_df[testing_df['MACD_Alert'] == 1])} | Bearish Count: {len(testing_df[testing_df['MACD_Alert'] == 0])}")
-# print(f"Bullish Engulf Count: {len(testing_df[testing_df['Engulf_Alert'] == 1])} | Bearish Engulf Count: {len(testing_df[testing_df['Engulf_Alert'] == 0])}")
-# print(f"Bullish 382 Count: {len(testing_df[testing_df['382_Alert'] == 1])} | Bearish 382 Count: {len(testing_df[testing_df['382_Alert'] == 0])}")
-# print(f"Bullish Dual Channel Count: {len(testing_df[testing_df['dual_channel_Alert'] == 1])} | Bearish Dual Channel Count: {len(testing_df[testing_df['dual_channel_Alert'] == 0])}")

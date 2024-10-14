@@ -14,7 +14,7 @@ def load_pipeline_config():
     try:
         with open(config_path, "r") as file:
             config = yaml.safe_load(file)
-        return config['data_pipeline']
+        return config
     except FileNotFoundError:
         print("Configuration file not found. Please ensure config/mongo.yaml exists.")
         raise

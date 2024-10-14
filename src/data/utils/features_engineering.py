@@ -9,24 +9,6 @@ class add_features:
         self.df["BodyDiff"] = abs(self.df["open"] - self.df["close"])
         self.df["CandleStickType"] = np.where(self.df["open"] < self.df["close"], "green", "red")
         return self.df
-
-    def continuous_increase(self, windows=3):
-        for i in range(1, windows + 1):
-            self.df[f"close_t-{i}"] = self.df["close"].shift(i)
-
-        self.df['Incremental_High'] = (self.df['close'] > self.df['close_t-1']) \
-                                        & (self.df['close_t-1'] > self.df['close_t-2']) \
-                                        & (self.df['close_t-2'] > self.df['close_t-3'])
-        return self.df
-
-    def macd_golden_cross(self):
-        self.df['MACD_GOLDEN_CROSS'] = (self.df['MACD'] > self.df['MACD_SIGNAL']) & (self.df['MACD'] < 0)
-        return self.df
-
-    def add_ema_band(self, threshold=0.05):
-        self.df['169EMA_Upper'] = self.df['169EMA'] * (1 + threshold)
-        self.df['169EMA_Lower'] = self.df['169EMA'] * (1 - threshold)
-        return self.df
     
     # Add Technical Indicators
     def add_technical(self):
@@ -61,15 +43,77 @@ class add_features:
         
         return self.df
     
+    def continuous_increase(self, windows=3):
+        for i in range(1, windows + 1):
+            self.df[f"close_t-{i}"] = self.df["close"].shift(i)
+
+        self.df['Incremental_High'] = (self.df['close'] > self.df['close_t-1']) \
+                                        & (self.df['close_t-1'] > self.df['close_t-2']) \
+                                        & (self.df['close_t-2'] > self.df['close_t-3'])
+        self.df['Incremental_Low'] = (self.df['close'] < self.df['close_t-1']) \
+                                        & (self.df['close_t-1'] < self.df['close_t-2']) \
+                                        & (self.df['close_t-2'] < self.df['close_t-3'])
+                                        
+        self.df.drop([f"close_t-{i}" for i in range(1, windows + 1)], axis=1, inplace=True)
+        
+        
+        return self.df
+
+    def macd_golden_cross(self):
+        self.df['MACD_GOLDEN_CROSS'] = (self.df['MACD'] > self.df['MACD_SIGNAL']) & (self.df['MACD'] < 0)
+        return self.df
+    
     def apply(self):
         self.add_technical()
         self.add_candlestick()
         self.continuous_increase()
-        self.macd_golden_cross()
-        self.add_ema_band()
-        
+        self.macd_golden_cross()        
         # Take last 252 * 3 rows
         self.df = self.df.iloc[-252*3:]
         
         return self.df
-            
+
+class VelocityFinder:
+    def __init__(self, data):
+        self.data = data
+
+    def support_loss(self, closing_prices, ema_13):
+        """
+        Custom loss function to find intervals where the 13 EMA acts as support.
+        Penalizes any instance where the closing price falls below the 13 EMA.
+        """
+        # Calculate the difference between the closing price and the 13 EMA
+        differences = closing_prices - ema_13
+
+        # Penalize cases where the closing price is below the 13 EMA (negative values)
+        penalties = np.where(differences < 0, np.abs(differences), 0)
+
+        # Sum up the penalties to form the loss
+        loss = np.sum(penalties)
+
+        return loss
+
+    def find_best_interval(self):
+        """
+        Find the interval with the lowest time-weighted 'price velocity', 
+        i.e., the one where the closing price fits the 13 EMA line the best.
+        """
+        intervals = self.data['interval'].unique()
+        best_interval = None
+        min_loss = float('inf')
+
+        for interval in intervals:
+            if 'D' not in interval:
+                continue  # Skip non-numeric intervals
+            interval_data = self.data[self.data['interval'] == interval].iloc[-60:]
+            closing_prices = interval_data['close'].values
+            ema_13 = interval_data['13EMA'].values
+
+            # Compute time-weighted loss for this interval
+            loss = self.support_loss(closing_prices, ema_13)
+
+            if loss < min_loss:
+                min_loss = loss
+                best_interval = interval
+
+        return best_interval, min_loss
