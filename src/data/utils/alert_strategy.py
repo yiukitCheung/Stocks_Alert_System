@@ -88,14 +88,49 @@ class AddAlert:
         self.df.loc[inverse_hammer, f'{self.interval}_Inverse_Hammer_Alert'] = 0
         
         self.df.drop(columns=['body_size', 'upper_shadow', 'lower_shadow'], inplace=True)
+    
+    def velocity_alert(self):
+        
+        # Condition where closing price above the 13 EMA and 169 EMA at the same time
+        self.df['above_13EMA'] = self.df['close'] > self.df['13EMA']
+        self.df['above_169EMA'] = self.df['close'] > self.df['169EMA']
+        
+        # Condition where closing price below the 13 EMA and 169 EMA
+        self.df['below_13EMA'] = self.df['close'] < self.df['13EMA']
+        self.df['below_169EMA'] = self.df['close'] < self.df['169EMA']
+        
+        # Condition where closing price sandwiched between the 13 EMA and 169 EMA
+        self.df['between_13_169EMA'] = (self.df['close'] > self.df['13EMA']) & (self.df['close'] < self.df['169EMA'])
+        
+        # Initialize columns
+        self.df[f'{self.interval}_velocity_maintained'] = 0
+        self.df[f'{self.interval}_velocity_negotiating'] = 0
+        self.df[f'{self.interval}_velocity_loss'] = 0
+        self.df[f'{self.interval}_velocity_weak'] = 0
+        
+        for i in self.df.index:
+            if self.df.loc[i, 'above_13EMA'] and self.df.loc[i, 'above_169EMA']:
+                self.df.loc[i, f'{self.interval}_velocity_maintained'] = 1
+                if self.df.loc[i-self.window, 'below_13EMA'] and self.df.loc[i, 'above_13EMA']:
+                    self.df.loc[i, f'{self.interval}_velocity_negotiating'] = 1
+            
+            elif self.df.loc[i, 'below_13EMA'] or self.df.loc[i, 'below_169EMA']:
+                self.df.loc[i, f'{self.interval}_velocity_loss'] = 0
+                
+            elif self.df.loc[i, 'between_13_169EMA']:
+                if self.df.loc[i-self.window, 'above_13EMA']:
+                    self.df.loc[i, f'{self.interval}_velocity_weak'] = 1
 
+        self.df.drop(columns=['above_13EMA', 'above_169EMA', 'below_13EMA', 'below_169EMA', 'between_13_169EMA'], inplace=True)
+            
     def apply(self):
         alert_methods = [
             self.engulf_alert,
             self.macd_alert,
             self.ema_support_alert,
             self.ema_support_alert,
-            self.hammer_alert
+            self.hammer_alert,
+            self.velocity_alert
         ]
 
         for alert_method in alert_methods:
@@ -105,7 +140,11 @@ class AddAlert:
             f'{self.interval}_MACD_Alert',
             f'{self.interval}_Engulf_Alert',
             f'{self.interval}_Hammer_Alert',
-            f'{self.interval}_Inverse_Hammer_Alert'
+            f'{self.interval}_Inverse_Hammer_Alert',
+            f'{self.interval}_velocity_maintained',
+            f'{self.interval}_velocity_negotiating',
+            f'{self.interval}_velocity_loss',
+            f'{self.interval}_velocity_weak'
         ]
 
         ema_recovery_alert_columns = [f'{self.interval}_{ema_period}_recovery' for ema_period in [13, 169]]

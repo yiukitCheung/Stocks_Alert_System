@@ -13,29 +13,26 @@ from config.mongdb_config import load_mongo_config
 from config.data_pipeline_config import load_pipeline_config
 
 class DataPreprocess:
-    def __init__(self, mongo_url, db_name, collection_name : list, tech_collection_name, alert_collection_name, new_intervals, velocity_dict):
-    
+    def __init__(self, mongo_config, data_pipline_config):
+        # Load configurations
+        self.mongo_url = mongo_config['url']
+        self.db_name = mongo_config['db_name']
+        self.collection_name = [f"{interval}_data" for interval in mongo_config['warehouse_interval']]
+        self.tech_collection_name = mongo_config['process_collection_name']
+        self.alert_collection_name = mongo_config['alert_collection_name']['long_term']
+        
+        self.new_intervals = data_pipline_config['data_preprocess']['new_intervals']
+        self.velocity_dict = data_pipline_config['data_preprocess']['velocity_dict']
+        
         # Initialize the MongoDB client
-        self.client = pymongo.MongoClient(mongo_url)
-        self.db = self.client[db_name]
+        self.client = pymongo.MongoClient(self.mongo_url)
+        self.db = self.client[self.db_name]
         
-        # Set the collection names
-        self.tech_collection_name = tech_collection_name
-        self.alert_collection_name = alert_collection_name
-        self.collection_name = collection_name
-        
-        # Set the new interval desried
-        self.new_intervals = new_intervals
-        self.velocity_dict = velocity_dict
         # Set the current date
         self.current_date = pd.to_datetime('today').strftime('%Y-%m-%d')
         
-        # Initialize the batch list
-        self.batch = []
-        
         # Initialize the dict to store the processed data
         self.processed_data_dict = {}
-        
         self.alert_df = pd.DataFrame()
         
         # Ensure technical data collection is time-series
@@ -44,13 +41,13 @@ class DataPreprocess:
             self.db.create_collection(
                 self.tech_collection_name,
                 timeseries={
-                    "timeField": "timestamp",  
+                    "timeField": "date",  
                     "metaField": "symbol",  
                     "granularity": "hours"
                 }
             )
             logging.info(f"{self.tech_collection_name} collection created")
-        
+            
     def fetch_data(self, symbol, collection):
         query = self.db[collection].find({"symbol": symbol},{'_id': 0})
         df = pd.DataFrame(list(query))        
@@ -86,7 +83,7 @@ class DataPreprocess:
 
         # Check for last record in the collection
         last_record = self.db[collection].find_one({"symbol": symbol, "interval": interval},
-                                                                sort=[('timestamp', pymongo.DESCENDING)])
+                                                                sort=[('date', pymongo.DESCENDING)])
         if last_record:
             last_date_in_db = pd.to_datetime(last_record['date']).strftime('%Y-%m-%d')
             if last_date_in_db == self.current_date:
@@ -99,7 +96,7 @@ class DataPreprocess:
         if not new_records_df.empty:
             new_records_df["symbol"] = symbol
             new_records_df["interval"] = interval
-            new_records_df["timestamp"] = pd.to_datetime(new_records_df["date"])
+            new_records_df["date"] = pd.to_datetime(new_records_df["date"])
             self.db[collection].insert_many(new_records_df.to_dict(orient='records'))
             logging.info(f"Inserted {len(new_records_df)} records into {self.tech_collection_name} collection")
             
@@ -153,19 +150,6 @@ if __name__ == "__main__":
     # Load the MongoDB configuration once
     mongo_config = load_mongo_config()
     data_pipeline_config = load_pipeline_config()
-    mongo_url = mongo_config['url']
-    db_name = mongo_config["db_name"]
-    collection_name = [f"{interval}_data" for interval in mongo_config["warehouse_interval"]]
-    processed_collection_name = mongo_config["process_collection_name"]
-    alert_collection_name = mongo_config["alert_collection_name"]['long_term']
-    new_intervals = data_pipeline_config['data_preprocess']['new_intervals']
-    velocity_dict = data_pipeline_config['data_preprocess']['velocity_dict']
-    
-    dp = DataPreprocess(mongo_url=mongo_url, 
-                        db_name=db_name, 
-                        collection_name=collection_name, 
-                        tech_collection_name=processed_collection_name,\
-                        alert_collection_name=alert_collection_name,
-                        new_intervals=new_intervals,
-                        velocity_dict=velocity_dict)
+
+    dp = DataPreprocess(mongo_config, data_pipeline_config)
     dp.run()

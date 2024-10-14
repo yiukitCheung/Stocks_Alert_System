@@ -48,13 +48,7 @@ def main():
                                 kafka_config=kafka_config)
     
     # Initialize the DataPreprocess
-    collection_name = [f"{interval}_data" for interval in mongo_config["warehouse_interval"]]
-    processed_collection_name = mongo_config["process_collection_name"]
-    
-    pre_processor = DataPreprocess(mongo_url=mongo_url, 
-                        db_name=db_name, 
-                        collection_name=collection_name, 
-                        tech_collection_name=processed_collection_name)
+    pre_processor = DataPreprocess(mongo_config=mongo_config, data_pipeline_config=data_pipeline_config)
     
     # Initialize the MakeTrainTestData
     make_train_test = MakeTrainTestData(mongo_config=mongo_config, data_pipeline_config=data_pipeline_config)
