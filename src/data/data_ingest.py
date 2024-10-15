@@ -1,5 +1,5 @@
 from confluent_kafka import Consumer
-from pymongo import MongoClient, ASCENDING, DESCENDING, UpdateOne
+from pymongo import MongoClient
 import json
 import pandas as pd
 import schedule
@@ -11,6 +11,7 @@ import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from config.mongdb_config import load_mongo_config
 from config.kafka_config import load_kafka_config
+from config.data_pipeline_config import load_pipeline_config
 
 # Configure logging
 logging.basicConfig(
@@ -21,11 +22,11 @@ logging.basicConfig(
 
 
 class StockDataIngestor:
-    def __init__(self,schedule_time,mongo_url, db_name, topics, kafka_config):
+    def __init__(self,schedule_time,mongo_url, db_name, topics, kafka_config, catch_up):  
 
         self.current_date = pd.to_datetime('today').strftime('%Y-%m-%d')
         self.schedule_time = schedule_time
-        
+        self.catch_up = catch_up
         # Initialize the MongoDB client
         self.client = MongoClient(mongo_url)
         self.db = self.client[db_name]
@@ -55,7 +56,7 @@ class StockDataIngestor:
             while ingesting:
                     
                 # Stops the consumer if trading is closed
-                if datetime.now().time() > datetime.strptime("14:10", "%H:%M").time():
+                if datetime.now().time() > datetime.strptime("14:10", "%H:%M").time() and not self.catch_up:
                     ingesting = False
                     break
                 
@@ -113,10 +114,13 @@ if __name__ == "__main__":
     # Kafka configuration
     kafka_config = load_kafka_config()
     
+    # Load data pipeline configuration
+    catch_up = load_pipeline_config()['data_extract']['catch_up']
     ingestor = StockDataIngestor(schedule_time=None, 
                                 mongo_url=mongo_url, 
                                 db_name=db_name, 
                                 topics=streaming_topics,
-                                kafka_config=kafka_config)
+                                kafka_config=kafka_config,
+                                catch_up=catch_up)
     
     ingestor.run()

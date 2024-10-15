@@ -178,7 +178,7 @@ class StockDataExtractor:
                         # Increment the start date by one day to fetch today data
                         start_date = (pd.to_datetime(start_date))
                     elif self.catch_up:
-                        start_date = self.current_date - pd.Timedelta(days=self.window_size[interval])
+                        start_date = self.current_date 
                         
                     # Fetch data from Yahoo Finance
                     data = ticker.history(start=start_date, interval=interval).reset_index()
@@ -225,7 +225,7 @@ class StockDataExtractor:
                 with open('config/data_pipeline_config.yaml', 'r') as f:
                     config = yaml.safe_load(f) or {}
                     
-                config['data_pipeline']['data_extract']['last_fetch_records'] = self.last_fetch
+                config['data_extract']['last_fetch_records'] = self.last_fetch
                 
                 with open('config/data_pipeline_config.yaml', 'w') as f:
                     yaml.safe_dump(config, f)
@@ -233,30 +233,39 @@ class StockDataExtractor:
         # Set Catch up to False after the first fetch
         self.catch_up = False
         
+    def delayed_fetch_and_produce(self):
+        # Introduce a delay before fetching to account for data latency
+        time.sleep(10)
+        self.fetch_and_produce_datastream()
+        
     def run(self):
         trading = True
         current_hour = pd.to_datetime('now').hour
-        # self.fetch_and_produce_datastream()
-        # self.fetch_and_produce_stock_data()
-        # Only set up schedules if before 14:00
-        if current_hour < 14:
-            # Loop through the minute intervals starting at 05 and incrementing by 5
-            for minute in range(5, 60, 5):
-                schedule.every().hour.at(f":{minute:02d}").do(self.fetch_and_produce_datastream)
-            while trading:
-                schedule.run_pending()
-                time.sleep(1)
-                if pd.to_datetime('now').hour >= 14:
-                    trading = False 
+        
+        if self.catch_up:
+            self.fetch_and_produce_datastream()
+            # self.fetch_and_produce_stock_data()
             
-            logging.info("Trading hour is over!")
-            time.sleep(5)
-            # Consume and Ingest daily and weekly stock data
-            self.fetch_and_produce_stock_data()
-            logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
-        else:
-            logging.info("Trading hour is over! Wait for the next trading day")
-            time.sleep(1)
+        elif not self.catch_up:
+            # Only set up schedules if before 14:00
+            if current_hour < 14:
+                # Loop through the minute intervals starting at 05 and incrementing by 5
+                for minute in range(5, 60, 5):
+                    schedule.every().hour.at(f":{minute:02d}").do(self.delayed_fetch_and_produce)
+                while trading:
+                    schedule.run_pending()
+                    time.sleep(1)
+                    if pd.to_datetime('now').hour >= 14:
+                        trading = False 
+                
+                logging.info("Trading hour is over!")
+                time.sleep(5)
+                # Consume and Ingest daily and weekly stock data
+                self.fetch_and_produce_stock_data()
+                logging.info(f"Scheduled fetching and producing stock data at {self.current_date} completed!")
+            else:
+                logging.info("Trading hour is over! Wait for the next trading day")
+                time.sleep(1)
             
 if __name__ == "__main__": 
     # Load Data Pipeline Configuration

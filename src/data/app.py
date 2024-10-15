@@ -1,9 +1,9 @@
 import concurrent.futures
 from data_extract import StockDataExtractor
+from datastream_process import DataStreamProcess
 from data_ingest import StockDataIngestor
 from data_preprocess import DataPreprocess
 from make_train import MakeTrainTestData
-from datastream_transform import DataStreamProcess
 import sys, os, datetime, logging
 # Add project root to sys.path dynamically
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
@@ -12,10 +12,14 @@ from config.kafka_config import load_kafka_config
 from config.data_pipeline_config import load_pipeline_config
 
 def main():
+    
     # Load the MongoDB, Kafka, and data pipeline configuration
     mongo_config = load_mongo_config()
     data_pipeline_config = load_pipeline_config()
     kafka_config = load_kafka_config()
+    
+    # Load run configurations
+    catch_up = data_pipeline_config['data_extract']['catch_up']
     
     # Extract the MongoDB configuration
     mongo_url = mongo_config['url']
@@ -45,13 +49,14 @@ def main():
                                 mongo_url=mongo_url,
                                 db_name=db_name,
                                 topics=stock_symbols,
-                                kafka_config=kafka_config)
+                                kafka_config=kafka_config,
+                                catch_up=catch_up)
     
     # Initialize the DataPreprocess
-    pre_processor = DataPreprocess(mongo_config=mongo_config, data_pipeline_config=data_pipeline_config)
+    pre_processor = DataPreprocess(mongo_config, data_pipeline_config)
     
     # Initialize the MakeTrainTestData
-    make_train_test = MakeTrainTestData(mongo_config=mongo_config, data_pipeline_config=data_pipeline_config)
+    make_train_test = MakeTrainTestData(mongo_config, data_pipeline_config)
     
     # Initalize the DataStreamProcess
     datastream_live_process = DataStreamProcess(lookback=15, mongo_url=mongo_url, 
@@ -59,7 +64,9 @@ def main():
                                                 kafka_config=kafka_config, 
                                                 datastream_topics=datastream_topics,
                                                 live_alert_collection=live_alert_collection,
-                                                batch_alert_collection=batch_alert_collection)
+                                                batch_alert_collection=batch_alert_collection,
+                                                catch_up=catch_up)
+    
     
     # Execute functions in parallel and run the rest after extractor finishes
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -79,22 +86,26 @@ def main():
                 make_train_test.run()
                 logging.info(f"{current_time}: Data pipeline completed successfully!")
                 break
-            
+
 if __name__ == "__main__":
     # Initialize the flag outside the loop
     message_printed = False
-
-    while True:
-        # Get the current time
-        current_time = datetime.datetime.now().time()
-        non_trading_hours = (current_time.hour >= 14 and current_time.minute >= 0 and current_time.second >= 0)
-        
-        # Check if the message has not been printed and print it once
-        if not message_printed:
-            print("Waiting for the time to reach 7:29 AM...")
-            message_printed = True 
+    catch_up = load_pipeline_config()['data_extract']['catch_up']
+    if not catch_up:
+        logging.info("Running the data pipeline in real-time mode...")
+        while True:
+            # Get the current time
+            current_time = datetime.datetime.now().time()
+            non_trading_hours = (current_time.hour >= 14 and current_time.minute >= 0 and current_time.second >= 0)
             
-        elif (current_time.hour == 7 and current_time.minute == 29 and current_time.second == 0) and not non_trading_hours:
+            # if (current_time.hour >= 7 and current_time.minute >= 29 and current_time.second >= 0) and not non_trading_hours:
             main()
-            
-    
+            # # Check if the message has not been printed and print it once
+            # if not message_printed:
+            #     print("Waiting for the time to reach 7:29 AM...")
+            #     message_printed = True 
+                
+                
+    elif catch_up:
+        logging.info("Running the data pipeline in catch-up mode...")
+        main()

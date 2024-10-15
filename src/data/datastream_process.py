@@ -10,6 +10,7 @@ import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from config.mongdb_config import load_mongo_config
 from config.kafka_config import load_kafka_config
+from config.data_pipeline_config import load_pipeline_config
 
 # Configure logging
 logging.basicConfig(
@@ -20,8 +21,9 @@ logging.basicConfig(
 
 class DataStreamProcess:
     def __init__(self, lookback, mongo_url, db_name, kafka_config, 
-                datastream_topics, live_alert_collection, batch_alert_collection):
-        
+                datastream_topics, live_alert_collection, batch_alert_collection, catch_up):
+        # Initialize the run config
+        self.catch_up = catch_up
         # Initialize the batch
         self.batch = {}
         self.candle = {}
@@ -238,7 +240,7 @@ class DataStreamProcess:
             msg = self.consumer.poll(1)
             if msg is None:
                 # Stop the loop if trading hours are over
-                if datetime.now().time() > datetime.strptime('14:05', '%H:%M').time():
+                if datetime.now().time() > datetime.strptime('14:05', '%H:%M').time() and not self.catch_up:
                     logging.info("Trading hours are over, Stopping the data stream process")
                     transforming = False
                     self.consumer.close()
@@ -259,7 +261,7 @@ class DataStreamProcess:
             
             logging.info(f"Processing symbol: {symbol} in interval: {interval} at {value['datetime']}")
             # Store the data in MongoDB
-            # self.store_datastream(symbol, value, topic)
+            self.store_datastream(symbol, value, topic)
             # Process the record
             self.streaming_process(value, interval)
             self.batch_process(symbol=symbol, records=value, interval=interval)
@@ -278,11 +280,15 @@ if __name__ == '__main__':
     # Load the Kafka configuration
     kafka_config = load_kafka_config()
     
+    # Load datapipeline configuration
+    catch_up = load_pipeline_config()['data_extract']['catch_up']
+    
     datastream = DataStreamProcess(lookback=15, mongo_url=url, 
                                 db_name=db_name, 
                                 kafka_config=kafka_config, 
                                 datastream_topics=datastream_topics,
                                 live_alert_collection=live_alert_collection,
-                                batch_alert_collection=batch_alert_collection)
+                                batch_alert_collection=batch_alert_collection,
+                                catch_up=catch_up)
     
     datastream.run()

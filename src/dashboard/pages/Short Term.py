@@ -286,7 +286,7 @@ if __name__ == "__main__":
     st.sidebar.header("Selector")
     st.title(f'Live Alert Tracking Dashboard')
     stock_selector = st.sidebar.selectbox('Select Stock', options=options, index=0)
-    intervals_selector = st.sidebar.selectbox('Select Interval', options=intervals, index=0)
+    intervals_selector = st.sidebar.selectbox('Select Interval', options=intervals, index=1)
     # Create a placeholder for the chart
     chart_placeholder = st.empty()
     # Continuously update the chart every minute

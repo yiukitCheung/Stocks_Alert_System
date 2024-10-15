@@ -21,6 +21,7 @@ class DataPreprocess:
         self.tech_collection_name = mongo_config['process_collection_name']
         self.alert_collection_name = mongo_config['alert_collection_name']['long_term']
         
+        self.data_pipline_config = data_pipline_config
         self.new_intervals = data_pipline_config['data_preprocess']['new_intervals']
         self.velocity_dict = data_pipline_config['data_preprocess']['velocity_dict']
         
@@ -131,9 +132,9 @@ class DataPreprocess:
                 self.velocity_dict[symbol] = best_interval
                 
         # Step 3. Write the updated velocity_dict to the data_pipeline_config.yaml file
-        data_pipeline_config['data_preprocess']['velocity_dict'] = self.velocity_dict
+        self.data_pipeline_config['data_preprocess']['velocity_dict'] = self.velocity_dict
         with open('config/data_pipeline_config.yaml', 'w') as file:
-            yaml.dump(data_pipeline_config, file)
+            yaml.dump(self.data_pipeline_config, file)
         
         # Step 4. Create a new collection to store alerts for each stock
         for symbol, symbol_list in self.processed_data_dict.items():
