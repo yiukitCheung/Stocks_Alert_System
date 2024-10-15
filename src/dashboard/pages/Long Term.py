@@ -25,12 +25,12 @@ def fetch_stock_data(collection, stock_symbol, interval):
                                             "interval": interval}, 
                                             {"_id": 0}))).sort_values(by=['date'])
 
-def fetch_alert_data(collection, stock_symbol):
-    warehouse_interval = st.secrets.warehouse_interval
-    if not warehouse_interval:
+def fetch_alert_data(collection, stock_symbol,interval):
+    if not interval:
         raise ValueError("warehouse_interval is empty in st.secrets")
+    
     return pd.DataFrame(list(collection.find({"symbol": stock_symbol,
-                                            "interval": warehouse_interval[0]}, 
+                                            "interval": interval}, 
                                             {"_id": 0}))).sort_values(by=['date'])
     
 @st.cache_data
@@ -48,35 +48,35 @@ def execute_trades(filtered_df):
 
 def create_figure(filtered_df, filtered_trades, show_macd=False):
     # win_trades, loss_trades, final_trade_profit_rate = compute_metrics(filtered_trades)
-    col1, col2, col3 = st.columns(3, gap='medium')
+    # col1, col2, col3 = st.columns(3, gap='medium')
 
-    # CSS styling for metric containers
-    st.markdown("""
-        <style>
-        .metric-container {
-            background-color: #f5f5f5;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-            text-align: center;
-            height: 100%;
-        }
-        .metric-label {
-            font-weight: bold;
-            font-size: 24px;
-            margin: 0;
-        }
-        .metric-value {
-            font-size: 24px;
-            font-weight: bold;
-            margin-top: 8px;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    # # CSS styling for metric containers
+    # st.markdown("""
+    #     <style>
+    #     .metric-container {
+    #         background-color: #f5f5f5;
+    #         border-radius: 8px;
+    #         padding: 20px;
+    #         box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+    #         display: flex;
+    #         justify-content: center;
+    #         align-items: center;
+    #         flex-direction: column;
+    #         text-align: center;
+    #         height: 100%;
+    #     }
+    #     .metric-label {
+    #         font-weight: bold;
+    #         font-size: 24px;
+    #         margin: 0;
+    #     }
+    #     .metric-value {
+    #         font-size: 24px;
+    #         font-weight: bold;
+    #         margin-top: 8px;
+    #     }
+    #     </style>
+    # """, unsafe_allow_html=True)
 
     # Determine the color of the profit value based on its sign
     # profit_color = "green" if final_trade_profit_rate > 0 else "red"
@@ -105,12 +105,17 @@ def create_figure(filtered_df, filtered_trades, show_macd=False):
     #         </div>
     #     """, unsafe_allow_html=True)
         
-    row_height = [0.65, 0.15, 0.25] if show_macd else [0.8, 0.2]
-    row = 3 if show_macd else 2
+    row_height = [0.8, 0.2] if show_macd else [1]
+    row = 2 if show_macd else 1
     # Calculate the date range for the last 6 months
     end_date = filtered_df['date'].max()
     start_date = end_date - pd.DateOffset(months=6)
-
+    
+    # Calculate the price range for the last 6 months
+    price_range = filtered_df[(filtered_df['date'] >= start_date) & (filtered_df['date'] <= end_date)]
+    min_price = price_range['low'].min() * 0.95 
+    max_price = price_range['high'].max() * 1.05
+    
     fig = sp.make_subplots(rows=row, cols=1, shared_xaxes=True, vertical_spacing=0.1, row_heights=row_height)
 
     fig.add_trace(go.Candlestick(
@@ -120,10 +125,14 @@ def create_figure(filtered_df, filtered_trades, show_macd=False):
         low=filtered_df['low'],
         close=filtered_df['close'],
         name='price'), row=1, col=1)
-
+    fig.update_xaxes(range=[start_date, end_date],title_text="Date", row=3, col=1)
+    
     for ema in ['144EMA', '169EMA', '13EMA', '8EMA']:
         fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df[ema], mode="lines", name=ema), row=1, col=1)
-
+        
+    fig.update_xaxes(range=[start_date, end_date],title_text="Date", row=1, col=1)
+    fig.update_yaxes(range=[min_price, max_price], title_text="Price", row=1, col=1)
+    
     # for trade_type, color in [('Entry', 'rgba(0,255,0,0.7)'), ('Exit', 'rgba(255,0,0,0.7)')]:
     #     fig.add_trace(go.Scatter(
     #         x=filtered_trades[f'{trade_type}_date'],
@@ -141,46 +150,48 @@ def create_figure(filtered_df, filtered_trades, show_macd=False):
     if show_macd:
         fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df['MACD'], mode='lines', name='MACD'), row=2, col=1)
         fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df['MACD_SIGNAL'], mode='lines', name='MACD signal'), row=2, col=1)
+        
+    # Calculate the MACD start and end date
+    macd_start_date = filtered_df['date'].min()
+    macd_end_date = filtered_df['date'].max()
     
+    fig.update_xaxes(range=[start_date, end_date],title_text="Date", row=2, col=1)
+    fig.update_yaxes(range=[macd_start_date, macd_end_date], title_text="MACD", row=2, col=1)
     # fig.add_trace(go.Scatter(x=filtered_trades['Exit_date'], y=filtered_trades['total_asset'], mode='lines', name='Profit', line=dict(color='green')), 
-    #             row=row, col=1)
-
-    fig.update_xaxes(range=[start_date, end_date],title_text="Date", row=3, col=1)
+    #             row=row, col=1)\
     # fig.update_yaxes(title_text="Profit/Loss", row=3, col=1)
+    
     fig.update_layout(xaxis_rangeslider_visible=False, autosize=False, showlegend=False, height=1000, width=1200)
 
     return fig
 
-def static_analysis_page():
+def static_analysis_page(processed_collection, alert_collection):
     # Set the page title and layout
     st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
     st.title("Stock Analysis Dashboard")
     
     # Add a sidebar
-    # Connect to MongoDB and fetch the processed collection
-    processed_collection = connect_to_mongo()[PROCESSED_COLLECTION_NAME]
-    alert_collection = connect_to_mongo()[ALERT_COLLECTION_NAME]
     # Create a dropdown to select the stock
     stock_selector = st.sidebar.selectbox('Select Stock', options=sorted(processed_collection.distinct("symbol")), index=0)
     # Create a dropdown to select the interval
     default_interval = st.secrets['velocity_dict'][stock_selector]
-    interval = st.sidebar.selectbox('Optimal Interval/ Select Interval', 
+    interval_selector = st.sidebar.selectbox('Optimal Interval/ Select Interval', 
                                     options=sorted(processed_collection.distinct("interval")), 
                                     index=sorted(processed_collection.distinct("interval")).\
                                         index(default_interval) if default_interval in processed_collection.distinct("interval")\
                                             else 0)
     
+    alert_df = fetch_alert_data(alert_collection, stock_selector, interval_selector)
     # Add an update button
     if st.sidebar.button("Update Data"):
         # Refetch the latest data when the button is clicked
-        processed_df = fetch_stock_data(processed_collection, stock_selector, interval)
-        # alert_df = fetch_alert_data(alert_collection, stock_selector)
+        processed_df = fetch_stock_data(processed_collection, stock_selector, interval_selector)
+        
         # filtered_trades = execute_trades(alert_df)
         st.success("Data updated successfully!")
     else:
         # Display the existing data if the button is not clicked
-        processed_df = fetch_stock_data(processed_collection, stock_selector, interval)
-        # alert_df = fetch_alert_data(alert_collection, stock_selector)
+        processed_df = fetch_stock_data(processed_collection, stock_selector, interval_selector)
         # filtered_trades = execute_trades(alert_df)
         
     # Add a checkbox to show the MACD
@@ -189,6 +200,51 @@ def static_analysis_page():
     # Create the figure
     fig = create_figure(processed_df, None, show_macd)
     st.plotly_chart(fig, use_container_width=True)
+    
+    # Display Alert
+    today_alert = alert_df[alert_df['date'] == alert_df['date'].max()]
+    
+    # Function to map values to color
+    def get_alert_color(value):
+        if value in ['failed', 'loss', 'Inverted_Hammer']:
+            return 'red'  # Bearish signal
+        elif value in ['reovery', 'maintained','Engulf','Hammer']:
+            return 'green'  # Bullish signal
+        else:
+            return 'grey'  # Neutral signal
+        
+    # Aesthetically display alerts with dots and labels
+    def get_alert_message(column_name, interval_selector):
+        alert_messages = {
+            f'{interval_selector}_MACD_Alert': "MACD Alert",
+            f'{interval_selector}_Engulf_Alert': "Engulfing Pattern Alert",
+            f'{interval_selector}_Hammer_Alert': "Hammer Pattern Alert",
+            f'{interval_selector}_Inverse_Hammer_Alert': "Inverse Hammer Pattern Alert",
+            f'{interval_selector}_velocity_maintained': "Velocity Maintained Alert",
+            f'{interval_selector}_velocity_negotiating': "Velocity Negotiating Alert",
+            f'{interval_selector}_velocity_loss': "Velocity Loss Alert",
+            f'{interval_selector}_velocity_weak': "Velocity Weak Alert",
+            f'{interval_selector}_13_recovery': "13 EMA Recovery",
+            f'{interval_selector}_169_recovery': "169 EMA Recovery"
+        }
+        return alert_messages.get(column_name, "Unknown Alert")
+
+    for column in today_alert.columns:
+        value = alert_df[column].iloc[0]  # Get the value for the current column
+        if (value == 1) or (value == 0):  # Only display if the value is 1
+            alert_color = get_alert_color(column)
+            alert_message = get_alert_message(column, interval_selector)
+            st.markdown(f"""
+                <div style="text-align: center;">
+                    <span style="font-size:50px; color:{alert_color}">●</span>
+                    <div style="font-size:16px; font-weight:bold; margin-top:10px; color:{alert_color};">{alert_message}</div>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            continue
 
 if __name__ == "__main__":
-    static_analysis_page()
+    # Connect to MongoDB and fetch the processed collection
+    processed_collection = connect_to_mongo()[PROCESSED_COLLECTION_NAME]
+    alert_collection = connect_to_mongo()[ALERT_COLLECTION_NAME]
+    static_analysis_page(processed_collection, alert_collection)

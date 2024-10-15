@@ -8,7 +8,7 @@ from pymongo import MongoClient, DESCENDING, ASCENDING
 # MongoDB Configuration
 DB_NAME = st.secrets['db_name']
 WAREHOUSE_INTERVAL = st.secrets.warehouse_interval
-WAREHOUSE_INTERVAL_COLLECTION = [f'{interval}_data' for interval in WAREHOUSE_INTERVAL]
+WAREHOUSE_INTERVAL_COLLECTION = '1d_data'
 PROCESSED_COLLECTION = st.secrets.processed_collection_name
 
 @st.cache_resource
@@ -18,7 +18,7 @@ def initialize_mongo_client(db_name=DB_NAME):
 
 @st.cache_data
 def fetch_index_return(symbol):
-    collection = initialize_mongo_client()[WAREHOUSE_INTERVAL_COLLECTION[0]]
+    collection = initialize_mongo_client()[WAREHOUSE_INTERVAL_COLLECTION]
     if not WAREHOUSE_INTERVAL:
         raise ValueError("warehouse_interval is empty in st.secrets")
 

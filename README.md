@@ -21,10 +21,10 @@ This project implements a **hybrid data pipeline** for streaming and batch proce
 
 ### 4. Interactive Dashboard
 - **Interactive Dashboard**: The system includes a dashboard that allows users to:
-  - **Strategy Performance View**: View the performance of the trading strategy for each stock, showing metrics such as profit, win/loss ratio, and trade details.
-  - **Live Alerts**: The dashboard provides live alerts for the current trading day, displaying buy/sell signals generated in real-time based on the streaming stock data.
+- **Strategy Performance View**: View the performance of the trading strategy for each stock, showing metrics such as profit, win/loss ratio, and trade details.
+- **Live Alerts**: The dashboard provides live alerts for the current trading day, displaying buy/sell signals generated in real-time based on the streaming stock data.
   
-  The dashboard is designed for both real-time monitoring and retrospective analysis, allowing users to visually inspect the technical indicators, alerts, and outcomes of the trading strategy in an interactive way.
+The dashboard is designed for both real-time monitoring and retrospective analysis, allowing users to visually inspect the technical indicators, alerts, and outcomes of the trading strategy in an interactive way.
 
 ### 5. Model Training (Upcoming)
 - **Model Pipeline**: A model pipeline is under development to train machine learning models on batch-processed stock data to predict future stock price movements.
@@ -36,24 +36,6 @@ This project implements a **hybrid data pipeline** for streaming and batch proce
 - **`model_performance_study.ipynb`**: Explores various performance metrics of machine learning models.
 - **`trading_automated_process.ipynb`**: Simulates an automated trading process based on strategy signals.
 - **`trading_manual_process.ipynb`**: Simulates a manual trading process using stock signals.
-
-## Installation and Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/your-username/stocks-alert-system.git
-cd stocks-alert-system
-
-# Create a Python virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run in the root dir
-python src/data/app.py
-```
 
 ### Usage
 
