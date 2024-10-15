@@ -28,10 +28,11 @@ def fetch_stock_data(collection, stock_symbol, interval):
 def fetch_alert_data(collection, stock_symbol,interval):
     if not interval:
         raise ValueError("warehouse_interval is empty in st.secrets")
-    
-    return pd.DataFrame(list(collection.find({"symbol": stock_symbol,
-                                            "interval": interval}, 
-                                            {"_id": 0}))).sort_values(by=['date'])
+    query = collection.find({"symbol": stock_symbol,
+                            "interval": interval},
+                            {"_id": 0})
+
+    return pd.DataFrame(list(query)).sort_values(by=['date'])     
     
 @st.cache_data
 def execute_trades(filtered_df):
@@ -108,7 +109,7 @@ def create_figure(filtered_df, filtered_trades, show_macd=False):
     row_height = [0.8, 0.2] if show_macd else [1]
     row = 2 if show_macd else 1
     # Calculate the date range for the last 6 months
-    end_date = filtered_df['date'].max()
+    end_date = filtered_df['date'].max() + pd.DateOffset(days=20)
     start_date = end_date - pd.DateOffset(months=6)
     
     # Calculate the price range for the last 6 months
@@ -165,10 +166,58 @@ def create_figure(filtered_df, filtered_trades, show_macd=False):
 
     return fig
 
+def display_alerts(alert_df):
+    # Display Alert
+    today_alert = alert_df[alert_df['date'] == alert_df['date'].max()]
+
+    # Function to map alert values to color and message
+    def get_alert_color_and_message(alert_type, value):
+        alert_mappings = {
+            'velocity_alert': {
+                'velocity_maintained': ('green', 'Velocity Maintained'),
+                'velocity_weak': ('red', 'Velocity Weakened'),
+                'velocity_loss': ('red', 'Velocity Loss'),
+                'velocity_negotiating': ('red', 'Velocity Negotiating')
+            },
+            'candle_alert': {
+                'bullish_engulf': ('green', 'Bullish Engulfing'),
+                'bearish_engulf': ('red', 'Bearish Engulfing'),
+                'hammer': ('green', 'Hammer Pattern'),
+                'inverse_hammer': ('red', 'Inverse Hammer Pattern')
+            },
+            'macd_alert': {
+                'bullish_macd': ('green', 'MACD Bullish Crossover'),
+                'bearish_macd': ('red', 'MACD Bearish Crossover')
+            }
+        }
+    
+        # Default to grey color if value or alert type is not recognized
+        color, message = alert_mappings.get(alert_type, {}).get(value, ('grey', 'Unknown Alert'))
+        return color, message
+    
+    # Main function to display alerts
+    def display_alerts(today_alert):        
+        # Loop through the relevant alert columns (e.g., velocity, candle, MACD)
+        for column in ['velocity_alert', 'candle_alert', 'macd_alert']:
+            alert_value = today_alert[column].values[0] if not today_alert[column].empty else None
+            if pd.notna(alert_value):  # Only display if alert has a valid value
+                alert_color, alert_message = get_alert_color_and_message(column, alert_value)
+            
+                # Display the alert with color-coded dot and message
+                st.markdown(f"""
+                    <div style="text-align: center;">
+                    <span style="font-size:50px; color:{alert_color}">●</span>
+                    <div style="font-size:16px; font-weight:bold; margin-top:10px; color:{alert_color};">{alert_message}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+    # Display the alerts            
+    display_alerts(today_alert)
+    
 def static_analysis_page(processed_collection, alert_collection):
     # Set the page title and layout
     st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
-    st.title("Stock Analysis Dashboard")
+    st.markdown("<h1 style='text-align: center;'>Stock Analysis Dashboard</h1>", unsafe_allow_html=True)
     
     # Add a sidebar
     # Create a dropdown to select the stock
@@ -199,50 +248,15 @@ def static_analysis_page(processed_collection, alert_collection):
     
     # Create the figure
     fig = create_figure(processed_df, None, show_macd)
-    st.plotly_chart(fig, use_container_width=True)
     
-    # Display Alert
-    today_alert = alert_df[alert_df['date'] == alert_df['date'].max()]
+    col1, col2 = st.columns([5, 1], vertical_alignment="top")
+    with col1:
+        st.plotly_chart(fig, use_container_width=True)
     
-    # Function to map values to color
-    def get_alert_color(value):
-        if value in ['failed', 'loss', 'Inverted_Hammer']:
-            return 'red'  # Bearish signal
-        elif value in ['reovery', 'maintained','Engulf','Hammer']:
-            return 'green'  # Bullish signal
-        else:
-            return 'grey'  # Neutral signal
-        
-    # Aesthetically display alerts with dots and labels
-    def get_alert_message(column_name, interval_selector):
-        alert_messages = {
-            f'{interval_selector}_MACD_Alert': "MACD Alert",
-            f'{interval_selector}_Engulf_Alert': "Engulfing Pattern Alert",
-            f'{interval_selector}_Hammer_Alert': "Hammer Pattern Alert",
-            f'{interval_selector}_Inverse_Hammer_Alert': "Inverse Hammer Pattern Alert",
-            f'{interval_selector}_velocity_maintained': "Velocity Maintained Alert",
-            f'{interval_selector}_velocity_negotiating': "Velocity Negotiating Alert",
-            f'{interval_selector}_velocity_loss': "Velocity Loss Alert",
-            f'{interval_selector}_velocity_weak': "Velocity Weak Alert",
-            f'{interval_selector}_13_recovery': "13 EMA Recovery",
-            f'{interval_selector}_169_recovery': "169 EMA Recovery"
-        }
-        return alert_messages.get(column_name, "Unknown Alert")
-
-    for column in today_alert.columns:
-        value = alert_df[column].iloc[0]  # Get the value for the current column
-        if (value == 1) or (value == 0):  # Only display if the value is 1
-            alert_color = get_alert_color(column)
-            alert_message = get_alert_message(column, interval_selector)
-            st.markdown(f"""
-                <div style="text-align: center;">
-                    <span style="font-size:50px; color:{alert_color}">●</span>
-                    <div style="font-size:16px; font-weight:bold; margin-top:10px; color:{alert_color};">{alert_message}</div>
-                </div>
-            """, unsafe_allow_html=True)
-        else:
-            continue
-
+    with col2:
+        # Display the alerts
+        display_alerts(alert_df)
+    
 if __name__ == "__main__":
     # Connect to MongoDB and fetch the processed collection
     processed_collection = connect_to_mongo()[PROCESSED_COLLECTION_NAME]

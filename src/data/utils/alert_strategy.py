@@ -4,9 +4,11 @@ class AddAlert:
         self.df = df[df['interval'] == interval].copy()
         self.window = 3 # Number of days to compare the stock price
         self.interval = interval
-
-        self.df['alert'] = None
-
+        # Create a new column to store the alert
+        self.df['velocity_alert'] = pd.Series([None] * len(self.df), dtype='object')
+        self.df['candle_alert'] = pd.Series([None] * len(self.df), dtype='object')
+        self.df['macd_alert'] = pd.Series([None] * len(self.df), dtype='object')
+        
     def engulf_alert(self):
         prev_open = self.df['open'].shift(1)
         prev_close = self.df['close'].shift(1)
@@ -30,8 +32,8 @@ class AddAlert:
             (current_close < prev_open.combine(prev_close, min))
         )
         
-        self.df.loc[bullish_engulfing, 'alert'] = 'bullish_engulf'
-        self.df.loc[bearish_engulfing, 'alert'] = 'bearish_engulf'
+        self.df.loc[bullish_engulfing, 'candle_alert'] = 'bullish_engulf'
+        self.df.loc[bearish_engulfing, 'candle_alert'] = 'bearish_engulf'
 
     def macd_alert(self):
         
@@ -42,8 +44,8 @@ class AddAlert:
         bullish_macd = macd_above_signal & macd_increasing & macd_below_zero
         bearish_macd = (self.df['MACD'] < self.df['MACD_SIGNAL']) & (self.df['MACD'] > self.df['MACD'].shift(-1))
 
-        self.df.loc[bullish_macd, 'alert'] = 'bullish_macd'
-        self.df.loc[bearish_macd, 'alert'] = 'bearish_macd'
+        self.df.loc[bullish_macd, 'macd_alert'] = 'bullish_macd'
+        self.df.loc[bearish_macd, 'macd_alert'] = 'bearish_macd'
         
     def hammer_alert(self):
         self.df['body_size'] = abs(self.df['close'] - self.df['open'])
@@ -62,16 +64,13 @@ class AddAlert:
             (self.df['lower_shadow'] <= (self.df['high'] - self.df['low']) * 0.1)
         )
 
-        self.df.loc[is_hammer, 'alert'] = 'hammer'
-        self.df.loc[inverse_hammer, 'alert'] = 'inverse_hammer'
+        self.df.loc[is_hammer, 'candle_alert'] = 'hammer'
+        self.df.loc[inverse_hammer, 'candle_alert'] = 'inverse_hammer'
 
         self.df.drop(columns=['body_size', 'upper_shadow', 'lower_shadow'], inplace=True)
 
     def ema_support_alert(self, recovery_days=5, epilson=0.05):
         
-        # Create a new column to store the alert
-        self.df['alert'] = pd.Series([None] * len(self.df), dtype='object')
-
         ema_periods = [13, 169]  # Example EMA periods
 
         for ema_period in ema_periods:
@@ -99,13 +98,13 @@ class AddAlert:
                     current_price = self.df.loc[i, 'close']
 
                     if (current_price >= self.df.loc[i - recovery_days : i - 1, '13EMA']).all():
-                        if alert_date == 0 or not (self.df.loc[alert_date : i, 'alert'] == '13ema_recovery').any():
-                            self.df.loc[i, 'alert'] = '13ema_recovery'
+                        if alert_date == 0 or not (self.df.loc[alert_date : i, 'velocity_alert'] == '13ema_recovery').any():
+                            self.df.loc[i, 'velocity_alert'] = '13ema_recovery'
                             alert_date = i
 
                     if (current_price <= self.df.loc[i - recovery_days : i - 1, '13EMA']).all():
-                        if alert_date == 0 or not (self.df.loc[alert_date : i, 'alert'] == '13ema_recover_failed').any():
-                            self.df.loc[i, 'alert'] = '13ema_recover_failed'
+                        if alert_date == 0 or not (self.df.loc[alert_date : i, 'velocity_alert'] == '13ema_recover_failed').any():
+                            self.df.loc[i, 'velocity_alert'] = '13ema_recover_failed'
                             alert_date = i
 
         for ema_period in ema_periods:
@@ -127,16 +126,16 @@ class AddAlert:
             if i - self.window < self.df.index[0]:
                 continue
             if self.df.loc[i, 'above_13EMA'] and self.df.loc[i, 'above_169EMA']:
-                self.df.loc[i, 'alert'] = 'velocity_maintained'
+                self.df.loc[i, 'velocity_alert'] = 'velocity_maintained'
                 if self.df.loc[i - self.window, 'below_13EMA'] and self.df.loc[i, 'above_13EMA']:
-                    self.df.loc[i, 'alert'] = 'velocity_negotiating'
+                    self.df.loc[i, 'velocity_alert'] = 'velocity_negotiating'
 
             elif self.df.loc[i, 'below_13EMA'] or self.df.loc[i, 'below_169EMA']:
-                self.df.loc[i, 'alert'] = 'velocity_loss'
+                self.df.loc[i, 'velocity_alert'] = 'velocity_loss'
 
             elif self.df.loc[i, 'between_13_169EMA']:
                 if self.df.loc[i-self.window, 'above_13EMA']:
-                    self.df.loc[i, 'alert'] = 'velocity_weak'
+                    self.df.loc[i, 'velocity_alert'] = 'velocity_weak'
 
         self.df.drop(columns=['above_13EMA', 'above_169EMA', 'below_13EMA', 'below_169EMA', 'between_13_169EMA'], inplace=True)
 
@@ -152,5 +151,5 @@ class AddAlert:
         for alert_method in alert_methods:
             alert_method()
 
-        self.df = self.df[['symbol', 'date', 'alert']]
+        self.df = self.df[['symbol', 'date', 'velocity_alert', 'candle_alert', 'macd_alert']]
         return self.df
