@@ -128,7 +128,8 @@ class StockDataExtractor:
                                 continue
                             else:
                                 # Fetch only the missing data
-                                data = ticker.history(start=last_date_in_db, interval=interval).reset_index()
+                                data = ticker.history(period='max', interval=interval).reset_index()
+                                data = data[data['Date'] > last_date_in_db]
                                 
                                 logging.info(f"Fetching data for {symbol} from {last_date_in_db}")
                         else:
@@ -178,7 +179,7 @@ class StockDataExtractor:
                         # Increment the start date by one day to fetch today data
                         start_date = (pd.to_datetime(start_date))
                     elif self.catch_up:
-                        start_date = self.current_date 
+                        start_date = self.current_date - pd.Timedelta(days=self.window_size[interval])
                         
                     # Fetch data from Yahoo Finance
                     data = ticker.history(start=start_date, interval=interval).reset_index()
@@ -243,8 +244,8 @@ class StockDataExtractor:
         current_hour = pd.to_datetime('now').hour
         
         if self.catch_up:
-            self.fetch_and_produce_datastream()
-            # self.fetch_and_produce_stock_data()
+            # self.fetch_and_produce_datastream()
+            self.fetch_and_produce_stock_data()
             
         elif not self.catch_up:
             # Only set up schedules if before 14:00

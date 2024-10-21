@@ -37,7 +37,7 @@ class StockDataIngestor:
         # Initialize the Kafka consumer
         self.kafka_config = kafka_config
         self.kafka_config["group.id"] = "my-consumer-group"
-        self.kafka_config["auto.offset.reset"] = "earliest"
+        self.kafka_config["auto.offset.reset"] = "latest"
         self.consumer = Consumer(self.kafka_config)
         
     def insert_data(self, collection_name, data):
@@ -119,7 +119,7 @@ if __name__ == "__main__":
     ingestor = StockDataIngestor(schedule_time=None, 
                                 mongo_url=mongo_url, 
                                 db_name=db_name, 
-                                topics=streaming_topics,
+                                topics=warehouse_topics,
                                 kafka_config=kafka_config,
                                 catch_up=catch_up)
     

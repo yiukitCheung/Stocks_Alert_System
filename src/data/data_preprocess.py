@@ -2,8 +2,8 @@
 import pymongo
 import pandas as pd
 import logging
-from utils.alert_strategy import AddAlert
-from utils.features_engineering import add_features, VelocityFinder
+from utils.alert_strategy import AddAlert, VelocityFinder
+from utils.features_engineering import add_features
 import sys,os,yaml
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -13,7 +13,7 @@ from config.mongdb_config import load_mongo_config
 from config.data_pipeline_config import load_pipeline_config
 
 class DataPreprocess:
-    def __init__(self, mongo_config, data_pipline_config):
+    def __init__(self, mongo_config, data_pipeline_config):
         # Load configurations
         self.mongo_url = mongo_config['url']
         self.db_name = mongo_config['db_name']
@@ -21,9 +21,9 @@ class DataPreprocess:
         self.tech_collection_name = mongo_config['process_collection_name']
         self.alert_collection_name = mongo_config['alert_collection_name']['long_term']
         
-        self.data_pipline_config = data_pipline_config
-        self.new_intervals = data_pipline_config['data_preprocess']['new_intervals']
-        self.velocity_dict = data_pipline_config['data_preprocess']['velocity_dict']
+        self.data_pipeline_config = data_pipeline_config
+        self.new_intervals = data_pipeline_config['data_preprocess']['new_intervals']
+        self.velocity_dict = {}
         
         # Initialize the MongoDB client
         self.client = pymongo.MongoClient(self.mongo_url)
@@ -74,7 +74,7 @@ class DataPreprocess:
             'volume': 'sum'
         })
         # Reset the index
-        new_df.reset_index(inplace=True)
+        new_df = new_df.reset_index()
         new_df = new_df.dropna()
         new_df['interval'] = interval
         
@@ -107,11 +107,9 @@ class DataPreprocess:
         for symbol in distinct_symbols:
             df = self.fetch_data(symbol, self.collection_name[0])
             for interval in self.new_intervals:
-                new_df = self.create_new_interval_data(df, interval)  
+                new_df = self.create_new_interval_data(df, f"{interval}D")  
                 new_df = self.process_data(new_df)    
-                self.insert_technical_data( self.tech_collection_name, symbol, new_df, interval)
-                logging.info(f"Inserted technical data for {symbol} on interval {interval}")
-                
+                self.insert_technical_data( self.tech_collection_name, symbol, new_df, interval)                
                 # Store the processed data in a dictionary
                 if symbol not in self.processed_data_dict:
                     self.processed_data_dict[symbol] = [new_df]
@@ -119,31 +117,21 @@ class DataPreprocess:
                     self.processed_data_dict[symbol].append(new_df)
                 
                 logging.info(f"Created new data for {symbol} on interval {interval}")
-                
-        # Step 2. Find the best fitting velocity (Interval) for each stock
-        for symbol, symbol_list in self.processed_data_dict.items():
-            symbol_df = pd.concat(symbol_list)
-            # Find the best fitting interval for the stock
-            velocity_finder = VelocityFinder(symbol_df)
-            best_interval, min_loss = velocity_finder.find_best_interval()
-            logging.info(f"Best fitting interval for {symbol} is {best_interval} with a loss of {min_loss}")
-            # Update the velocity_dict with the best fitting interval
-            if symbol not in self.velocity_dict:
-                self.velocity_dict[symbol] = best_interval
-                
-        # Step 3. Write the updated velocity_dict to the data_pipeline_config.yaml file
-        self.data_pipeline_config['data_preprocess']['velocity_dict'] = self.velocity_dict
-        with open('config/data_pipeline_config.yaml', 'w') as file:
-            yaml.dump(self.data_pipeline_config, file)
         
-        # Step 4. Create a new collection to store alerts for each stock
+        # Step 2. Create alerts for each symbol on the new intervals
         for symbol, symbol_list in self.processed_data_dict.items():
+            
             df = pd.concat(symbol_list)
+            df.reset_index(drop=True, inplace=True)
+            df = VelocityFinder(df).run()
+            
             for interval in self.new_intervals:
                 logging.info(f"Creating alerts for {symbol} on interval {interval}...")
                 alert_df = AddAlert(df, interval=interval).apply()
                 self.alert_df = pd.concat([self.alert_df, alert_df])
                 logging.info(f"Added alerts for {symbol} on interval {interval}") 
+                
+                # Step 3. Insert the alerts into the alert collection
                 self.insert_technical_data(self.alert_collection_name,symbol, alert_df, interval)
                 logging.info(f"Inserted alerts for {symbol} on interval {interval}")
                 

@@ -2,11 +2,7 @@ import pandas as pd
 import pymongo
 import plotly.graph_objects as go
 import streamlit as st
-import os, sys
 import plotly.subplots as sp
-# Ensure the correct path to the 'data' directory
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'data'))
-from utils.trading_strategy import TradingStrategy
 
 # MongoDB Configuration
 DB_NAME = st.secrets['db_name']
@@ -33,79 +29,9 @@ def fetch_alert_data(collection, stock_symbol,interval):
                             {"_id": 0})
 
     return pd.DataFrame(list(query)).sort_values(by=['date'])     
-    
-@st.cache_data
-def execute_trades(filtered_df):
-    trades_history = TradingStrategy(filtered_df)
-    trades_history.execute_trades()
-    return trades_history.get_trades()
 
-@st.cache_data
-# def compute_metrics(filtered_trades):
-#     win_trades = len(filtered_trades[filtered_trades['profit'] > 0])
-#     loss_trades = len(filtered_trades[filtered_trades['profit'] <= 0])
-#     final_trade_profit_rate = (round(filtered_trades['total_asset'].iloc[-1]) - 10000) / 100
-#     return [win_trades, loss_trades, final_trade_profit_rate]
+def create_figure(filtered_df, show_macd=False):
 
-def create_figure(filtered_df, filtered_trades, show_macd=False):
-    # win_trades, loss_trades, final_trade_profit_rate = compute_metrics(filtered_trades)
-    # col1, col2, col3 = st.columns(3, gap='medium')
-
-    # # CSS styling for metric containers
-    # st.markdown("""
-    #     <style>
-    #     .metric-container {
-    #         background-color: #f5f5f5;
-    #         border-radius: 8px;
-    #         padding: 20px;
-    #         box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
-    #         display: flex;
-    #         justify-content: center;
-    #         align-items: center;
-    #         flex-direction: column;
-    #         text-align: center;
-    #         height: 100%;
-    #     }
-    #     .metric-label {
-    #         font-weight: bold;
-    #         font-size: 24px;
-    #         margin: 0;
-    #     }
-    #     .metric-value {
-    #         font-size: 24px;
-    #         font-weight: bold;
-    #         margin-top: 8px;
-    #     }
-    #     </style>
-    # """, unsafe_allow_html=True)
-
-    # Determine the color of the profit value based on its sign
-    # profit_color = "green" if final_trade_profit_rate > 0 else "red"
-
-    # with col1:
-    #     st.markdown(f"""
-    #         <div class="metric-container">
-    #             <h3 class="metric-label">Final Trade Profit</h3>
-    #             <p class="metric-value" style="color: {profit_color};">{final_trade_profit_rate}%</p>
-    #         </div>
-    #     """, unsafe_allow_html=True)
-            
-    # with col2:
-    #     st.markdown(f"""
-    #         <div class="metric-container">
-    #             <h3 class="metric-label">Win Trades</h3>
-    #             <p class="metric-value" style="color: green;">{win_trades}</p>
-    #         </div>
-    #     """, unsafe_allow_html=True)
-            
-    # with col3:
-    #     st.markdown(f"""
-    #         <div class="metric-container">
-    #             <h3 class="metric-label">Loss Trades</h3>
-    #             <p class="metric-value" style="color: red;">{loss_trades}</p>
-    #         </div>
-    #     """, unsafe_allow_html=True)
-        
     row_height = [0.8, 0.2] if show_macd else [1]
     row = 2 if show_macd else 1
     # Calculate the date range for the last 6 months
@@ -235,19 +161,16 @@ def static_analysis_page(processed_collection, alert_collection):
     if st.sidebar.button("Update Data"):
         # Refetch the latest data when the button is clicked
         processed_df = fetch_stock_data(processed_collection, stock_selector, interval_selector)
-        
-        # filtered_trades = execute_trades(alert_df)
         st.success("Data updated successfully!")
     else:
         # Display the existing data if the button is not clicked
         processed_df = fetch_stock_data(processed_collection, stock_selector, interval_selector)
-        # filtered_trades = execute_trades(alert_df)
         
     # Add a checkbox to show the MACD
     show_macd = st.sidebar.checkbox("Show MACD", value=False)
     
     # Create the figure
-    fig = create_figure(processed_df, None, show_macd)
+    fig = create_figure(processed_df, show_macd)
     
     col1, col2 = st.columns([5, 1], vertical_alignment="top")
     with col1:
