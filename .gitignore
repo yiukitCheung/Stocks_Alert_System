@@ -1,4 +1,9 @@
 src/__pycache__/
+src/utils/__pycache__/
+src/utils/alert_strategy.py
+src/utils/trading_strategy.py
 .streamlit/secrets.toml
 config/client.properties
 config/mongo.yaml
+jupyter_notebook/simulated_trading.ipynb
+jupyter_notebook/strategy_analysis.ipynb
