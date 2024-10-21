@@ -6,30 +6,30 @@ class add_features:
         self.df = df.copy()
 
     def add_candlestick(self):
-        self.df["BodyDiff"] = abs(self.df["open"] - self.df["close"])
-        self.df["CandleStickType"] = np.where(self.df["open"] < self.df["close"], "green", "red")
+        self.df["bodydiff"] = abs(self.df["open"] - self.df["close"])
+        self.df["candlesticktype"] = np.where(self.df["open"] < self.df["close"], "green", "red")
         return self.df
     
     # Add Technical Indicators
     def add_technical(self):
         
         # Add ema dual channels technical indicators
-        self.df['8EMA'] = ta.trend.ema_indicator(self.df['close'], window=8)
-        self.df['13EMA'] = ta.trend.ema_indicator(self.df['close'], window=13)
-        self.df['144EMA'] = ta.trend.ema_indicator(self.df['close'], window=144)
-        self.df['169EMA'] = ta.trend.ema_indicator(self.df['close'], window=169)
+        self.df['8ema'] = ta.trend.ema_indicator(self.df['close'], window=8)
+        self.df['13ema'] = ta.trend.ema_indicator(self.df['close'], window=13)
+        self.df['144ema'] = ta.trend.ema_indicator(self.df['close'], window=144)
+        self.df['169ema'] = ta.trend.ema_indicator(self.df['close'], window=169)
 
         # Add MACD technical indicator
-        self.df['MACD'] = ta.trend.macd(self.df['close'], 
+        self.df['macd'] = ta.trend.macd(self.df['close'], 
                                         window_slow=26, 
                                         window_fast=12)
         
-        self.df['MACD_SIGNAL'] = ta.trend.macd_signal(self.df['close'], 
+        self.df['macd_signal'] = ta.trend.macd_signal(self.df['close'], 
                                                     window_slow=26, 
                                                     window_fast=12, 
                                                     window_sign=9)
         
-        self.df['MACD_HIST'] = ta.trend.macd_diff(self.df['close'], 
+        self.df['macd_hist'] = ta.trend.macd_diff(self.df['close'], 
                                                 window_slow=26, 
                                                 window_fast=12, 
                                                 window_sign=9)
@@ -47,10 +47,10 @@ class add_features:
         for i in range(1, windows + 1):
             self.df[f"close_t-{i}"] = self.df["close"].shift(i)
 
-        self.df['Incremental_High'] = (self.df['close'] > self.df['close_t-1']) \
+        self.df['increamental_high'] = (self.df['close'] > self.df['close_t-1']) \
                                         & (self.df['close_t-1'] > self.df['close_t-2']) \
                                         & (self.df['close_t-2'] > self.df['close_t-3'])
-        self.df['Incremental_Low'] = (self.df['close'] < self.df['close_t-1']) \
+        self.df['incremental_low'] = (self.df['close'] < self.df['close_t-1']) \
                                         & (self.df['close_t-1'] < self.df['close_t-2']) \
                                         & (self.df['close_t-2'] < self.df['close_t-3'])
                                         
@@ -60,7 +60,7 @@ class add_features:
         return self.df
 
     def macd_golden_cross(self):
-        self.df['MACD_GOLDEN_CROSS'] = (self.df['MACD'] > self.df['MACD_SIGNAL']) & (self.df['MACD'] < 0)
+        self.df['macd_golden_cross'] = (self.df['macd'] > self.df['macd_signal']) & (self.df['macd'] < 0)
         return self.df
     
     def apply(self):
@@ -69,6 +69,6 @@ class add_features:
         self.continuous_increase()
         self.macd_golden_cross()        
         # Take last 252 * 3 rows
-        self.df = self.df.iloc[-252*3:]
+        self.df = self.df.iloc[-252*5:]
         
         return self.df

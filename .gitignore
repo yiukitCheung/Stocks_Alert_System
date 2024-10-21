@@ -5,5 +5,5 @@ src/utils/trading_strategy.py
 .streamlit/secrets.toml
 config/client.properties
 config/mongo.yaml
-jupyter_notebook/simulated_trading.ipynb
-jupyter_notebook/strategy_analysis.ipynb
+jupyter_notebook/step.2.2_data_preprocess.ipynb
+jupyter_notebook/step.3_simulated_trading.ipynb
