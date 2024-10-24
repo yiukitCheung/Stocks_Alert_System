@@ -13,28 +13,6 @@ data_ingest:
   - SPY
   - SOXX
   - DJIA
-  - IWM
-  - NVDA
-  - AAPL
-  - TSLA
-  - AMZN
-  - MSFT
-  - SQQQ
-  - AMD
-  - SOXL
-  - SOXS
-  - GOOGL
-  - NVDS
-  - NFLX
-  - UPRO
-  - SPXL
-  - SPXS
-  - TQQQ
-  - TNA
-  - TZA
-  - TSLS
-  - TSLL
-  - SDOW
 data_preprocess:
   new_intervals:
   - 1
