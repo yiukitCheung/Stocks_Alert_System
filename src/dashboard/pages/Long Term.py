@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import pymongo
 import plotly.graph_objects as go
 import streamlit as st
@@ -24,11 +25,27 @@ def fetch_stock_data(collection, stock_symbol, interval):
 def fetch_alert_data(collection, stock_symbol,interval):
     if not interval:
         raise ValueError("warehouse_interval is empty in st.secrets")
-    query = collection.find({"symbol": stock_symbol,
-                            "interval": interval},
-                            {"_id": 0})
+        # Fetch the data from MongoDB and convert to DataFrame
+    data = list(collection.find({'symbol': stock_symbol, 'interval': interval}, {'_id': 0}))
 
-    return pd.DataFrame(list(query)).sort_values(by=['date'])     
+    # Extract the alerts from the alert_dict
+    for entry in data:
+        if 'alerts' in entry and 'momentum_alert' in entry['alerts']:
+            entry['momentum_alert'] = entry['alerts']['momentum_alert']['alert_type']
+        if 'alerts' in entry and "velocity_alert" in entry['alerts']:
+            entry['velocity_alert'] = entry['alerts']['velocity_alert']['alert_type']
+        if 'alerts' in entry and '169ema_touched' in entry['alerts']:
+            entry['touch_type'] = entry['alerts']['169ema_touched']['type']
+        elif 'alerts' in entry and '13ema_touched' in entry['alerts']:
+            entry['touch_type'] = entry['alerts']['13ema_touched']['type']
+        else:
+            entry['touch_type'] = np.nan
+
+    # Convert the alert_dict to a DataFrame
+    data = pd.DataFrame(data).sort_values(by=['date'])
+    data = data.drop(columns=['alerts'])
+
+    return data
 
 def create_figure(filtered_df, show_macd=False):
 
@@ -54,7 +71,7 @@ def create_figure(filtered_df, show_macd=False):
         name='price'), row=1, col=1)
     fig.update_xaxes(range=[start_date, end_date],title_text="Date", row=3, col=1)
     
-    for ema in ['144EMA', '169EMA', '13EMA', '8EMA']:
+    for ema in ['144ema', '169ema', '13ema', '8ema']:
         fig.add_trace(go.Scatter(x=filtered_df['date'], y=filtered_df[ema], mode="lines", name=ema), row=1, col=1)
         
     fig.update_xaxes(range=[start_date, end_date],title_text="Date", row=1, col=1)
@@ -105,15 +122,13 @@ def display_alerts(alert_df):
                 'velocity_loss': ('red', 'Velocity Loss'),
                 'velocity_negotiating': ('red', 'Velocity Negotiating')
             },
-            'candle_alert': {
-                'bullish_engulf': ('green', 'Bullish Engulfing'),
-                'bearish_engulf': ('red', 'Bearish Engulfing'),
-                'hammer': ('green', 'Hammer Pattern'),
-                'inverse_hammer': ('red', 'Inverse Hammer Pattern')
+            'touch_type': {
+                1.0: ('green', 'Support'),
+                0.0: ('red', 'Resistance')
             },
-            'macd_alert': {
-                'bullish_macd': ('green', 'MACD Bullish Crossover'),
-                'bearish_macd': ('red', 'MACD Bearish Crossover')
+            'momentum_alert': {
+                1.0: ('green', 'Accelerating'),
+                0.0: ('red', 'Decelerating')
             }
         }
     
@@ -124,7 +139,7 @@ def display_alerts(alert_df):
     # Main function to display alerts
     def display_alerts(today_alert):        
         # Loop through the relevant alert columns (e.g., velocity, candle, MACD)
-        for column in ['velocity_alert', 'candle_alert', 'macd_alert']:
+        for column in ['velocity_alert', 'touch_type', 'momentum_alert']:
             alert_value = today_alert[column].values[0] if not today_alert[column].empty else None
             if pd.notna(alert_value):  # Only display if alert has a valid value
                 alert_color, alert_message = get_alert_color_and_message(column, alert_value)
@@ -155,8 +170,9 @@ def static_analysis_page(processed_collection, alert_collection):
                                     index=sorted(processed_collection.distinct("interval")).\
                                         index(default_interval) if default_interval in processed_collection.distinct("interval")\
                                             else 0)
-    
+
     alert_df = fetch_alert_data(alert_collection, stock_selector, interval_selector)
+
     # Add an update button
     if st.sidebar.button("Update Data"):
         # Refetch the latest data when the button is clicked
@@ -165,7 +181,6 @@ def static_analysis_page(processed_collection, alert_collection):
     else:
         # Display the existing data if the button is not clicked
         processed_df = fetch_stock_data(processed_collection, stock_selector, interval_selector)
-        
     # Add a checkbox to show the MACD
     show_macd = st.sidebar.checkbox("Show MACD", value=False)
     

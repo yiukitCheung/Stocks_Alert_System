@@ -7,8 +7,9 @@ import yfinance as yf
 from pymongo import MongoClient, DESCENDING, ASCENDING
 import sys, os
 # Ensure the correct path to the 'data' directory
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'data'))
-from utils.trading_strategy import TradingStrategy
+from utils.trading_strategy import DailyTradingStrategy, Pick_Stock
 
 # MongoDB Configuration
 DB_NAME = st.secrets['db_name']
@@ -37,24 +38,33 @@ def fetch_index_return(symbol):
     df = df.sort_values(by="date")
 
     # Calculate cumulative returns based on the first available 'close' value
-    df['cumulative_return'] = (df['close'] / df['close'].iloc[0]) - 1
-
+    df['cumulative_return'] = df['close'].pct_change().fillna(0).add(1).cumprod()
     return df
 
 def fetch_portfolio_return(trades_data):
     trades_data = pd.DataFrame(trades_data)
     
 def get_trade_data(data_collection, alert_collection):
-    
-    trades_history = TradingStrategy(data_collection, alert_collection)
-    trades_history.execute_trades()
+    stock_candidates = Pick_Stock(alert_collection).run()
+    trades_history = DailyTradingStrategy(data_collection, alert_collection, stock_candidates)
+    trades_history.execute_critical_trades()
     return trades_history.get_trades()
 
 @st.cache_data
 def compute_metrics(filtered_trades):
-    win_trades = len(filtered_trades[filtered_trades['profit'] > 0])
-    loss_trades = len(filtered_trades[filtered_trades['profit'] <= 0])
-    final_trade_profit_rate = (round(filtered_trades['total_asset'].iloc[-1]) - 10000) / 100
+    # Verify required columns are present
+    if 'profit/loss' not in filtered_trades.columns or 'total_asset' not in filtered_trades.columns:
+        raise ValueError("The DataFrame must contain 'profit/loss' and 'total_asset' columns.")
+
+    # Clean and convert profit/loss column to numeric decimal
+    profit = filtered_trades['profit/loss'].str.replace('%', '').astype(float) / 100
+    # Calculate the number of winning and losing trades
+    win_trades = (profit > 0).sum()
+    loss_trades = (profit <= 0).sum()
+
+    # Calculate final trade profit rate
+    final_trade_profit_rate = (filtered_trades['total_asset'].iloc[-1] - 10000) / 100
+
     return [win_trades, loss_trades, final_trade_profit_rate]
     
 st.set_page_config(page_title="Stock Prediction Dashboard", layout="wide")
@@ -85,7 +95,7 @@ client = initialize_mongo_client()
 symbols = client[st.secrets['db_name']][st.secrets['processed_collection_name']].distinct("symbol")
 
 # Fetch trade data
-df_trades = get_trade_data(client[DB_NAME][PROCESSED_COLLECTION], 
+df_trades = get_trade_data(client[DB_NAME][PROCESSED_COLLECTION],
                         client[DB_NAME][ALERT_COLLECTION])
 
 # Compute metrics (e.g., win rate, loss rate, final profit rate)

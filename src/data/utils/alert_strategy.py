@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class AddAlert:
     def __init__(self, df_dict, interval, symbol):
         self.df_dict = [entry for entry in df_dict if entry['interval'] == interval]
@@ -7,11 +8,12 @@ class AddAlert:
         self.interval = interval
         self.symbol = symbol
         self.dict = {}
+
     def velocity_accel_decel_alert(self, data, obs_window=15):
         """
         Adds alerts to the stock data when velocity accelerates or decelerates based on the crossing of EMA8, EMA13, and EMA169.
         Uses an observation window to determine if the stock is accelerating based on the count of 'velocity_weak' vs 'velocity_maintained'.
-        
+
         :param data: List of stock data dictionaries. Each dictionary must contain '8EMA', '13EMA', and '169EMA'.
         :param obs_window: The number of periods to observe for determining acceleration or deceleration (default: 15).
         :return: List of dictionaries with velocity alerts ('velocity_accelerated', 'velocity_decelerated', or 'trend_change') added.
@@ -26,21 +28,25 @@ class AddAlert:
             if i < obs_window:
                 continue
 
-            previous_window = data[i-obs_window:i]
+            previous_window = data[i - obs_window:i]
             current_velocity_status = None
-            
-            count_velocity_loss = sum(1 for row in previous_window if 'velocity_alert' in row['alerts'] and row['alerts']['velocity_alert']['alert_type'] in ['velocity_loss', 'velocity_weak'])
-            count_velocity_maintained = sum(1 for row in previous_window if 'velocity_alert' in row['alerts'] and row['alerts']['velocity_alert']['alert_type'] == 'velocity_maintained')
+
+            count_velocity_loss = sum(1 for row in previous_window if
+                                      'velocity_alert' in row['alerts'] and row['alerts']['velocity_alert'][
+                                          'alert_type'] in ['velocity_loss', 'velocity_weak'])
+            count_velocity_maintained = sum(1 for row in previous_window if
+                                            'velocity_alert' in row['alerts'] and row['alerts']['velocity_alert'][
+                                                'alert_type'] == 'velocity_maintained')
 
             if entry['8ema'] > entry['169ema'] and entry['13ema'] > entry['169ema']:
                 if count_velocity_loss > count_velocity_maintained:
                     if 'velocity_accelerated' not in entry['alerts']:
-                        current_velocity_status = 'accelerated'
+                        current_velocity_status = 1.0
             elif entry['8ema'] < entry['13ema']:
                 if count_velocity_maintained > count_velocity_loss:
                     if 'velocity_decelerated' not in entry['alerts']:
-                        current_velocity_status = 'decelerated'
-            
+                        current_velocity_status = 0.0
+
             if current_velocity_status and current_velocity_status != previous_velocity_status:
                 entry['alerts']['momentum_alert'] = {
                     "date": entry['date'],
@@ -55,7 +61,7 @@ class AddAlert:
         """
         Adds 'velocity_alert' to the 'alerts' dictionary in each stock data entry based on the relationship between the close price, 13EMA, and 169EMA.
         Avoids adding duplicate consecutive alerts.
-        
+
         :param data: List of stock data dictionaries. Each dictionary must contain 'close', '13EMA', and '169EMA'.
         :param window: The number of periods to look back for identifying velocity changes.
         :return: List of dictionaries with 'velocity_alert' added in the 'alerts' sub-dictionary, avoiding duplicate consecutive alerts.
@@ -63,7 +69,7 @@ class AddAlert:
         for i in range(len(data)):
             if i < window:
                 continue
-            
+
             entry = data[i]
             if 'alerts' not in entry:
                 entry['alerts'] = {}
@@ -86,7 +92,7 @@ class AddAlert:
                 current_alert_type = 'velocity_loss'
             elif between_13_169EMA and below_13EMA:
                 current_alert_type = 'velocity_weak'
-            
+
             if current_alert_type:
                 entry['alerts']['velocity_alert'] = {
                     "date": entry['date'],
@@ -104,25 +110,25 @@ class AddAlert:
         :return: List of dictionaries with alerts added.
         """
         for entry in data:
-        
+
             # Define the upper and lower bounds for the tolerance range
             upper_bound = entry['169ema'] * (1 + tolerance)
             lower_bound = entry['169ema'] * (1 - tolerance)
-            
+
             # Determine if the touch is from above (support) or below (resistance) using 13EMA > 169EMA
             if entry['13ema'] > entry['169ema']:
-                alert_type = 'support'  # Touched from above
+                alert_type = 1.0  # Touched from above Support
             elif entry['13ema'] < entry['169ema']:
-                alert_type = 'resistance'  # Touched from below
+                alert_type = 0.0  # Touched from below Resistance
             else:
-                alert_type = 'neutral'
+                alert_type = -1  # No alert
 
             # Check if the closing price is within the tolerance range of the 169 EMA
             if (lower_bound <= entry['close'] <= upper_bound) \
-                or (lower_bound <= entry['low'] <= upper_bound) \
-                or (lower_bound <= entry['high'] <= upper_bound) \
-                or (lower_bound <= entry['open'] <= upper_bound):
-                
+                    or (lower_bound <= entry['low'] <= upper_bound) \
+                    or (lower_bound <= entry['high'] <= upper_bound) \
+                    or (lower_bound <= entry['open'] <= upper_bound):
+
                 # Add the 169EMA touch alert to the entry
                 if 'alerts' not in entry:
                     entry['alerts'] = {}
@@ -135,27 +141,27 @@ class AddAlert:
                     "type": alert_type,  # 'support' or 'resistance'
                     "details": f"Close price touched EMA169 from {alert_type} within {tolerance * 100}% tolerance"
                 }
-                    
+
             # Check for the 13 ema touch for high interval
-            
+
             if entry['interval'] >= 7:
                 # Define the upper and lower bounds for the tolerance range
                 upper_bound = entry['13ema'] * (1 + tolerance)
                 lower_bound = entry['13ema'] * (1 - tolerance)
-            
+
                 # Determine if the touch is from above (support) or below (resistance) using 8EMA > 13EMA
                 if entry['8ema'] > entry['13ema']:
-                    alert_type = 'support'
+                    alert_type = 1.0
                 elif entry['8ema'] < entry['13ema']:
-                    alert_type = 'resistance'
+                    alert_type = 0.0
                 else:
-                    alert_type = 'neutral'
-                    
+                    alert_type = -1
+
                 # Check if the closing price is within the tolerance range of the 169 EMA
                 if (lower_bound <= entry['close'] <= upper_bound) \
-                    or (lower_bound <= entry['low'] <= upper_bound) \
-                    or (lower_bound <= entry['high'] <= upper_bound) \
-                    or (lower_bound <= entry['open'] <= upper_bound):
+                        or (lower_bound <= entry['low'] <= upper_bound) \
+                        or (lower_bound <= entry['high'] <= upper_bound) \
+                        or (lower_bound <= entry['open'] <= upper_bound):
                     # If no alerts exist, create the 'alerts' dictionary
                     if 'alerts' not in entry:
                         entry['alerts'] = {}
@@ -173,27 +179,27 @@ class AddAlert:
     # Function to filter only the required keys (symbol, interval, alerts)
     def filter_data(self, data, symbol):
         filtered_data = {}
-        
+
         # data is a list, so we need to iterate through it
         filtered_data[symbol] = [
-            {   "date" : record['date'],
-                'interval': record['interval'],  # Keep interval
-                'alerts': record['alerts']  # Keep alerts
-            }
+            {"date": record['date'],
+             'interval': record['interval'],  # Keep interval
+             'alerts': record['alerts']  # Keep alerts
+             }
             for record in data  # Iterate over the list directly
         ]
-        
+
         return filtered_data
-    
+
     def apply(self):
         self.df_dict = self.add_169ema_touch_alert(self.df_dict)
         self.df_dict = self.velocity_alert_dict(self.df_dict)
         self.df_dict = self.velocity_accel_decel_alert(self.df_dict)
-        
+
         self.df_dict = self.filter_data(self.df_dict, self.symbol)
-        
+
         return self.df_dict
-    
+
 class VelocityFinder:
     def __init__(self, data):
         self.data = data
